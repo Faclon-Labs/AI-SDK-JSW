@@ -1,0 +1,204 @@
+{
+    "Date": "2025-06-24T18:30:00Z",
+    "RCA_Message": {
+        "TPH": {
+            "cause": "The Average TPH has declined by 11.3 % from 500 to 449.26.",
+            "one_rp_down": {
+                "1": "There were 7 nos of Start/Stop event for RP 1 which contributed to 197 Mins of  mill Downtime.",
+                "2": "It took combiendly 93.27 mins to ramp up the feed due to RP 1 start/stop.",
+                "3": "There were 3 nos of Start/Stop event for RP 2 which contributed to 29 Mins of mill breakdown.",
+                "4": "It took combiendly 42.75 mins to ramp up the feed due to RP 2 start/stop."
+            },
+            "both_rp_down": {
+                "1": " Both the RPs were down together for 211 mins.",
+                "2": "It took 0 mins ramp up the feed due to both RP 1 & Rp2 start/stop."
+            },
+            "Reduced Feed Operations": {
+                "1": "Mill was running at reduced capacity for 111.75 mins even when both RPs were running . It was running 400 to 430 for 46.43 mins and less than 400 for 65.32 mins.",
+                "2": "Mill was running at reduced capacity for 17.72 mins even when only one RP were running .  It was running 230 to 200 for 0.0 mins and less than 200 for 17.72 mins."
+            },
+            "rampup": [
+                {
+                    "scenario": "RP1 Ramp Events",
+                    "ramp_start": "2025-06-22T02:03:30+05:30",
+                    "ramp_end": "2025-06-22T02:19:50+05:30",
+                    "duration_minutes": 16.333333333333332,
+                    "final_tph": 468.216064453125,
+                    "stability_reason": "STABLE: 468.2 TPH (>430 for 3min - both pumps)"
+                },
+                {
+                    "scenario": "RP1 Ramp Events",
+                    "ramp_start": "2025-06-22T07:46:48+05:30",
+                    "ramp_end": "2025-06-22T08:32:28+05:30",
+                    "duration_minutes": 45.666666666666664,
+                    "final_tph": 445.2241516113281,
+                    "stability_reason": "STABLE: 445.2 TPH (>430 for 3min - both pumps)"
+                },
+                {
+                    "scenario": "RP1 Ramp Events",
+                    "ramp_start": "2025-06-22T12:10:24+05:30",
+                    "ramp_end": "2025-06-22T12:31:38+05:30",
+                    "duration_minutes": 21.233333333333334,
+                    "final_tph": 278.0733947753906,
+                    "stability_reason": "INTERRUPTED: 278.1 TPH (other pump started)"
+                },
+                {
+                    "scenario": "RP1 Ramp Events",
+                    "ramp_start": "2025-06-22T13:27:03+05:30",
+                    "ramp_end": "2025-06-22T13:30:24+05:30",
+                    "duration_minutes": 3.35,
+                    "final_tph": 450.99615478515625,
+                    "stability_reason": "STABLE: 451.0 TPH (>430 for 3min - both pumps)"
+                },
+                {
+                    "scenario": "RP1 Ramp Events",
+                    "ramp_start": "2025-06-22T14:42:22+05:30",
+                    "ramp_end": "2025-06-22T14:45:45+05:30",
+                    "duration_minutes": 3.3833333333333333,
+                    "final_tph": 481.2691345214844,
+                    "stability_reason": "STABLE: 481.3 TPH (>430 for 3min - both pumps)"
+                },
+                {
+                    "scenario": "RP1 Ramp Events",
+                    "ramp_start": "2025-06-22T21:20:18+05:30",
+                    "ramp_end": "2025-06-22T21:23:36+05:30",
+                    "duration_minutes": 3.3,
+                    "final_tph": 444.76556396484375,
+                    "stability_reason": "STABLE: 444.8 TPH (>430 for 3min - both pumps)"
+                },
+                {
+                    "scenario": "RP2 Ramp Events",
+                    "ramp_start": "2025-06-22T07:34:50+05:30",
+                    "ramp_end": "2025-06-22T07:46:48+05:30",
+                    "duration_minutes": 11.966666666666667,
+                    "final_tph": 287.6160888671875,
+                    "stability_reason": "INTERRUPTED: 287.6 TPH (other pump started)"
+                },
+                {
+                    "scenario": "RP2 Ramp Events",
+                    "ramp_start": "2025-06-22T11:41:46+05:30",
+                    "ramp_end": "2025-06-22T12:09:21+05:30",
+                    "duration_minutes": 27.583333333333332,
+                    "final_tph": 355.55010986328125,
+                    "stability_reason": "STABLE: 355.6 TPH (>230 for 3min - single pump)"
+                },
+                {
+                    "scenario": "RP2 Ramp Events",
+                    "ramp_start": "2025-06-22T12:31:38+05:30",
+                    "ramp_end": "2025-06-22T12:34:50+05:30",
+                    "duration_minutes": 3.2,
+                    "final_tph": 458.69232177734375,
+                    "stability_reason": "STABLE: 458.7 TPH (>430 for 3min - both pumps)"
+                }
+            ],
+            "lowfeed": [
+                {
+                    "period_start": "2025-06-22T03:42:36+05:30",
+                    "period_end": "2025-06-22T03:52:15+05:30",
+                    "duration_minutes": 9.65,
+                    "pumps_running": 1,
+                    "expected_tph": 230,
+                    "avg_tph": 0.0,
+                    "min_tph": 0.0,
+                    "max_tph": 0.0,
+                    "efficiency_loss_percent": 100.0,
+                    "end_reason": "TPH improved (reached 0.0)"
+                },
+                {
+                    "period_start": "2025-06-22T14:07:41+05:30",
+                    "period_end": "2025-06-22T14:15:45+05:30",
+                    "duration_minutes": 8.066666666666666,
+                    "pumps_running": 1,
+                    "expected_tph": 230,
+                    "avg_tph": 166.54690742492676,
+                    "min_tph": 149.94100952148438,
+                    "max_tph": 229.29541015625,
+                    "efficiency_loss_percent": 27.588301119597062,
+                    "end_reason": "TPH improved (reached 231.8)"
+                },
+                {
+                    "period_start": "2025-06-22T15:43:44+05:30",
+                    "period_end": "2025-06-22T15:57:00+05:30",
+                    "duration_minutes": 13.266666666666667,
+                    "pumps_running": 2,
+                    "expected_tph": 430,
+                    "avg_tph": 403.02625920222357,
+                    "min_tph": 397.7536926269531,
+                    "max_tph": 426.898681640625,
+                    "efficiency_loss_percent": 6.272962976227077,
+                    "end_reason": "TPH improved (reached 450.1)"
+                },
+                {
+                    "period_start": "2025-06-22T16:20:12+05:30",
+                    "period_end": "2025-06-22T16:32:05+05:30",
+                    "duration_minutes": 11.883333333333333,
+                    "pumps_running": 2,
+                    "expected_tph": 430,
+                    "avg_tph": 400.13957595825195,
+                    "min_tph": 112.26136779785156,
+                    "max_tph": 429.0249328613281,
+                    "efficiency_loss_percent": 6.944284660871639,
+                    "end_reason": "TPH improved (reached 432.6)"
+                },
+                {
+                    "period_start": "2025-06-22T19:38:28+05:30",
+                    "period_end": "2025-06-22T20:43:47+05:30",
+                    "duration_minutes": 65.31666666666666,
+                    "pumps_running": 2,
+                    "expected_tph": 430,
+                    "avg_tph": 395.7069211866035,
+                    "min_tph": 379.7490234375,
+                    "max_tph": 418.055908203125,
+                    "efficiency_loss_percent": 7.975134607766629,
+                    "end_reason": "TPH improved (reached 446.6)"
+                },
+                {
+                    "period_start": "2025-06-22T22:20:15+05:30",
+                    "period_end": "2025-06-22T22:41:32+05:30",
+                    "duration_minutes": 21.283333333333335,
+                    "pumps_running": 2,
+                    "expected_tph": 430,
+                    "avg_tph": 409.949040222168,
+                    "min_tph": 403.2513122558594,
+                    "max_tph": 427.05120849609375,
+                    "efficiency_loss_percent": 4.6630139018214,
+                    "end_reason": "TPH improved (reached 443.4)"
+                }
+            ]
+        },
+        "High_Power": {
+            "SKS_FAN": {
+                "cause": "SKS Fan SPC increased to 3.59 kWh/ton (12.04 % higher than the set target) wrt target of 3.2 kWh.",
+                "sensor": {
+                    "D104": "SKS Fan Speed"
+                },
+                "Target": {
+                    "D104": 690
+                },
+                "2": "When only RP1 were running, the SKS fan operated at an RPM above 680 for 4.67 minutes, even though the feed remained below 230 TPH",
+                "3": "When only RP2 were running, the SKS fan operated at an RPM above 680 for 5.38 minutes, even though the feed remained below 230 TPH"
+            },
+            "mill_auxiliaries": {
+                "cause": "Mill Fedding Auxiliaries SPC increased to 1.66 kWh/ton (15.29 % higher than the set target) wrt target of 1.44 kWh.",
+                "1": "Mill Fedding Auxiliaries SPC increased due to raw mill runs only for the 17.78 hours."
+            },
+            "product_transportation": {
+                "cause": "Product Transportation SPC increased to 0.84 kWh/ton (462.36 % higher than the set target) wrt target of 0.15 kWh."
+            }
+        },
+        "SPC": {
+            "target": 14.19,
+            "today": 15.878760592756182,
+            "deviation": 11.9,
+            "Impact": "High"
+        },
+        "detected_issue": "SEC deviation detected on 2025-06-22 23:59:59: Specific Energy Consumption higher than the Target by 11.9% (Target 14.19 to 15.88kWh/ton).",
+        "query_time": [
+            "2025-06-22 00:00:00",
+            "2025-06-22 23:59:59"
+        ],
+        "idle_running": {
+            "cause": "The Idle Running contributed 5062.72 kWh which contributed additional 0.63 kWh/ton in overall SPC which is almost 4.78% of the additional SPC above target. "
+        }
+    }
+}
