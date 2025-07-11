@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchAllInsightResults } from '../lib/api';
+import { fetchAllInsightResults, fetchInsightResultsByTimeRange, TimeRange } from '../lib/api';
 
 interface DiagnosticData {
   millName: string;
@@ -34,7 +34,7 @@ interface DiagnosticData {
   };
 }
 
-export function useDiagnosticData() {
+export function useDiagnosticData(timeRange?: TimeRange) {
   const [diagnosticData, setDiagnosticData] = useState<DiagnosticData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,15 @@ export function useDiagnosticData() {
       setError(null);
       
       try {
-        const results = await fetchAllInsightResults();
+        let results;
+        
+        if (timeRange) {
+          // Use time range if provided
+          results = await fetchInsightResultsByTimeRange(timeRange);
+        } else {
+          // Fallback to fetching all results
+          results = await fetchAllInsightResults();
+        }
         
         // Transform backend data into frontend format
         const transformedData: DiagnosticData[] = results.map((result, index) => {
@@ -98,7 +106,7 @@ export function useDiagnosticData() {
     }
     
     fetchAndTransformData();
-  }, []);
+  }, [timeRange]); // Add timeRange as dependency
 
   return { diagnosticData, loading, error };
 } 

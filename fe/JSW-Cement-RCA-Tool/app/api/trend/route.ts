@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Configuration for the backend connection
 const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5', // Hardcoded user ID
-  dataUrl: 'datads.iosense.io', // Correct data URL
+  dataUrl: 'datads-ext.iosense.io', // Correct data URL
   onPrem: false,
   tz: 'UTC'
 };

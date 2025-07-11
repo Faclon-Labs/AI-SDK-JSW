@@ -42,6 +42,121 @@ function formatDateYMD(date: Date | undefined): string {
   return `${year}-${month}-${day}`;
 }
 
+// Helper to get time range based on preset
+function getTimeRangeFromPreset(preset: string): TimeRange {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  switch (preset) {
+    case 'Today':
+      return {
+        startDate: formatDateYMD(today),
+        startTime: '00:00',
+        endDate: formatDateYMD(today),
+        endTime: '23:59',
+      };
+    case 'Yesterday':
+      return {
+        startDate: formatDateYMD(yesterday),
+        startTime: '00:00',
+        endDate: formatDateYMD(yesterday),
+        endTime: '23:59',
+      };
+    case 'Current Week':
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      return {
+        startDate: formatDateYMD(startOfWeek),
+        startTime: '00:00',
+        endDate: formatDateYMD(endOfWeek),
+        endTime: '23:59',
+      };
+    case 'Previous Week':
+      const startOfLastWeek = new Date(today);
+      startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
+      const endOfLastWeek = new Date(startOfLastWeek);
+      endOfLastWeek.setDate(startOfLastWeek.getDate() + 6);
+      return {
+        startDate: formatDateYMD(startOfLastWeek),
+        startTime: '00:00',
+        endDate: formatDateYMD(endOfLastWeek),
+        endTime: '23:59',
+      };
+    case 'Previous 7 Days':
+      const sevenDaysAgo = new Date(today);
+      sevenDaysAgo.setDate(today.getDate() - 7);
+      return {
+        startDate: formatDateYMD(sevenDaysAgo),
+        startTime: '00:00',
+        endDate: formatDateYMD(today),
+        endTime: '23:59',
+      };
+    case 'Current Month':
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      return {
+        startDate: formatDateYMD(startOfMonth),
+        startTime: '00:00',
+        endDate: formatDateYMD(endOfMonth),
+        endTime: '23:59',
+      };
+    case 'Previous Month':
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      return {
+        startDate: formatDateYMD(startOfLastMonth),
+        startTime: '00:00',
+        endDate: formatDateYMD(endOfLastMonth),
+        endTime: '23:59',
+      };
+    case 'Previous 3 Months':
+      const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      return {
+        startDate: formatDateYMD(threeMonthsAgo),
+        startTime: '00:00',
+        endDate: formatDateYMD(today),
+        endTime: '23:59',
+      };
+    case 'Previous 12 Months':
+      const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+      return {
+        startDate: formatDateYMD(twelveMonthsAgo),
+        startTime: '00:00',
+        endDate: formatDateYMD(today),
+        endTime: '23:59',
+      };
+    case 'Current Year':
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+      const endOfYear = new Date(now.getFullYear(), 11, 31);
+      return {
+        startDate: formatDateYMD(startOfYear),
+        startTime: '00:00',
+        endDate: formatDateYMD(endOfYear),
+        endTime: '23:59',
+      };
+    case 'Previous Year':
+      const startOfLastYear = new Date(now.getFullYear() - 1, 0, 1);
+      const endOfLastYear = new Date(now.getFullYear() - 1, 11, 31);
+      return {
+        startDate: formatDateYMD(startOfLastYear),
+        startTime: '00:00',
+        endDate: formatDateYMD(endOfLastYear),
+        endTime: '23:59',
+      };
+    default:
+      return {
+        startDate: formatDateYMD(today),
+        startTime: '00:00',
+        endDate: formatDateYMD(today),
+        endTime: '23:59',
+      };
+  }
+}
+
 export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChange, onCancel, onApply }) => {
   const [selectedPreset, setSelectedPreset] = useState('Today');
   const [range, setRange] = useState<TimeRange>({
@@ -58,7 +173,16 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
   // Handlers
   const handlePresetClick = (preset: string) => {
     setSelectedPreset(preset);
-    // TODO: Update range based on preset
+    if (preset !== 'Custom') {
+      const newRange = getTimeRangeFromPreset(preset);
+      setRange(newRange);
+      onChange(newRange);
+      // Sync calendar
+      setCalendarRange({
+        from: newRange.startDate ? new Date(newRange.startDate) : undefined,
+        to: newRange.endDate ? new Date(newRange.endDate) : undefined,
+      });
+    }
   };
 
   const handleInputChange = (field: keyof TimeRange, val: string) => {
@@ -91,9 +215,9 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
   };
 
   return (
-    <div className="flex bg-white rounded-lg shadow-lg w-[540px] min-w-[400px] max-w-[98vw]">
+    <div className="flex bg-white rounded-lg shadow-lg w-[500px] min-w-[380px] max-w-[98vw]">
       {/* Left: Presets */}
-      <div className="w-36 border-r p-2">
+      <div className="w-44 border-r p-2">
         <ul className="space-y-0.5">
           {PRESETS.map(preset => (
             <li key={preset}>
@@ -108,7 +232,7 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
         </ul>
       </div>
       {/* Right: Date/Time & Calendar */}
-      <div className="flex-1 p-2 flex flex-col gap-2 min-w-[300px]">
+      <div className="flex-1 p-2 flex flex-col gap-2 w-full max-w-[320px]">
         <div className="grid grid-cols-2 gap-1 mb-1">
           <div>
             <label className="block text-xs font-medium mb-0.5">Start Date *</label>
@@ -116,7 +240,7 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
           </div>
           <div>
             <label className="block text-xs font-medium mb-0.5">Start Time *</label>
-            <Input type="time" value={range.startTime} onChange={e => handleInputChange('startTime', e.target.value)} className="text-xs h-8" />
+            <Input type="time" value={range.startTime} onChange={e => handleInputChange('startTime', e.target.value)} className="text-xs h-8 w-24" />
           </div>
           <div>
             <label className="block text-xs font-medium mb-0.5">End Date *</label>
@@ -124,20 +248,20 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
           </div>
           <div>
             <label className="block text-xs font-medium mb-0.5">End Time *</label>
-            <Input type="time" value={range.endTime} onChange={e => handleInputChange('endTime', e.target.value)} className="text-xs h-8" />
+            <Input type="time" value={range.endTime} onChange={e => handleInputChange('endTime', e.target.value)} className="text-xs h-8 w-24" />
           </div>
         </div>
-        <div>
+        <div className="flex-1 flex items-center justify-center w-full">
           <Calendar
             mode="range"
             selected={calendarRange}
             onSelect={handleCalendarSelect}
-            className="rounded-md border text-xs"
+            className="w-full max-w-[320px] mx-auto"
           />
         </div>
-        <div className="flex justify-end gap-1 mt-2">
-          <Button variant="outline" size="sm" className="px-3 py-1 text-xs h-8" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" className="px-3 py-1 text-xs h-8" onClick={onApply}>Apply</Button>
+        <div className="flex justify-end gap-2 mt-2 w-full">
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button variant="default" onClick={onApply} className="w-full max-w-[120px]">Apply</Button>
         </div>
       </div>
     </div>
