@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X } from "lucide-react"
+import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench } from "lucide-react"
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useDiagnosticData } from "./hooks/useDiagnosticData"
@@ -71,15 +71,6 @@ const highlightNumbers = (text: any) => {
 };
 
 export default function Component() {
-  const { diagnosticData, loading, error } = useDiagnosticData();
-  const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "all">("all")
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
-  const [popupData, setPopupData] = useState<{isOpen: boolean, data: any, section: string, backendData?: any}>({
-    isOpen: false,
-    data: null,
-    section: "",
-    backendData: null
-  })
   // Add state for time picker modal and range
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [selectedRange, setSelectedRange] = useState<TimeRange>({
@@ -89,8 +80,121 @@ export default function Component() {
     endTime: "23:59",
   });
 
+  // Add state for maintenance popup
+  const [maintenancePopup, setMaintenancePopup] = useState<{isOpen: boolean, activeTab: 'RP1' | 'RP2', rp1: any[], rp2: any[]}>({
+    isOpen: false,
+    activeTab: 'RP1',
+    rp1: [],
+    rp2: []
+  });
+
+  // Function to open maintenance popup
+  const openMaintenancePopup = (backendData: any) => {
+    setMaintenancePopup({
+      isOpen: true,
+      activeTab: 'RP1',
+      rp1: backendData?.TPH?.RP1_maintance || [],
+      rp2: backendData?.TPH?.RP2_maintance || []
+    });
+  };
+  const closeMaintenancePopup = () => setMaintenancePopup({ ...maintenancePopup, isOpen: false });
+
+  // Pass the selected time range to the hook
+  const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
+  const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "all">("all")
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [popupData, setPopupData] = useState<{isOpen: boolean, data: any, section: string, backendData?: any}>({
+    isOpen: false,
+    data: null,
+    section: "",
+    backendData: null
+  })
+
   // Format range for display
-  const displayRange = `${selectedRange.startDate} - ${selectedRange.endDate}`;
+  const displayRange = `${selectedRange.startDate} ${selectedRange.startTime} - ${selectedRange.endDate} ${selectedRange.endTime}`;
+
+  // Function to get preset name based on current selection
+  const getPresetName = (range: TimeRange): string => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const startDate = new Date(range.startDate);
+    const endDate = new Date(range.endDate);
+    
+    // Check if it's today
+    if (range.startDate === range.endDate && 
+        range.startDate === today.toISOString().slice(0, 10) &&
+        range.startTime === '00:00' && range.endTime === '23:59') {
+      return 'Today';
+    }
+    
+    // Check if it's yesterday
+    if (range.startDate === range.endDate && 
+        range.startDate === yesterday.toISOString().slice(0, 10) &&
+        range.startTime === '00:00' && range.endTime === '23:59') {
+      return 'Yesterday';
+    }
+    
+    // Check if it's current week
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    
+    if (range.startDate === startOfWeek.toISOString().slice(0, 10) &&
+        range.endDate === endOfWeek.toISOString().slice(0, 10) &&
+        range.startTime === '00:00' && range.endTime === '23:59') {
+      return 'Current Week';
+    }
+    
+    // Check if it's previous week
+    const startOfLastWeek = new Date(today);
+    startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
+    const endOfLastWeek = new Date(startOfLastWeek);
+    endOfLastWeek.setDate(startOfLastWeek.getDate() + 6);
+    
+    if (range.startDate === startOfLastWeek.toISOString().slice(0, 10) &&
+        range.endDate === endOfLastWeek.toISOString().slice(0, 10) &&
+        range.startTime === '00:00' && range.endTime === '23:59') {
+      return 'Previous Week';
+    }
+    
+    // Check if it's previous 7 days
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 7);
+    
+    if (range.startDate === sevenDaysAgo.toISOString().slice(0, 10) &&
+        range.endDate === today.toISOString().slice(0, 10) &&
+        range.startTime === '00:00' && range.endTime === '23:59') {
+      return 'Previous 7 Days';
+    }
+    
+    // Check if it's current month
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    if (range.startDate === startOfMonth.toISOString().slice(0, 10) &&
+        range.endDate === endOfMonth.toISOString().slice(0, 10) &&
+        range.startTime === '00:00' && range.endTime === '23:59') {
+      return 'Current Month';
+    }
+    
+    // Check if it's previous month
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    
+    if (range.startDate === startOfLastMonth.toISOString().slice(0, 10) &&
+        range.endDate === endOfLastMonth.toISOString().slice(0, 10) &&
+        range.startTime === '00:00' && range.endTime === '23:59') {
+      return 'Previous Month';
+    }
+    
+    return 'Custom';
+  };
+
+  const currentPreset = getPresetName(selectedRange);
 
   // Function to extract real device ID from payload
   const extractDeviceId = (data: any): string | null => {
@@ -174,6 +278,52 @@ export default function Component() {
     return !!(deviceId && sensorIds && sensorIds.length > 0);
   };
 
+  // Function to check if trend data is available for a specific section
+  const hasTrendData = (data: any, section: string): boolean => {
+    if (!data) return false;
+    let sectionData;
+    switch (section) {
+      case "One RP Down":
+        sectionData = data?.TPH?.one_rp_down?.rampup;
+        break;
+      case "Both RP Down":
+        sectionData = data?.TPH?.both_rp_down;
+        break;
+      case "Reduced Feed Operations":
+        sectionData = data?.TPH?.lowfeed;
+        break;
+      case "SKS Fan":
+        sectionData = data?.High_Power?.SKS_FAN;
+        break;
+      case "Mill Auxiliaries":
+        sectionData = data?.High_Power?.mill_auxiliaries;
+        break;
+      case "Product Transportation":
+        sectionData = data?.High_Power?.product_transportation;
+        break;
+      default:
+        return false;
+    }
+    if (Array.isArray(sectionData)) {
+      return sectionData.length > 0;
+    }
+    if (typeof sectionData === 'object' && sectionData !== null) {
+      // Ignore metadata fields like 'cause', 'device', 'sensor'
+      const dataKeys = Object.keys(sectionData).filter(
+        (key) => key !== 'cause' && key !== 'device' && key !== 'sensor'
+      );
+      // Check if any key has a non-empty array, non-empty object, or non-empty string (not 'N/A')
+      return dataKeys.some((key) => {
+        const value = sectionData[key];
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'object' && value !== null) return Object.keys(value).length > 0;
+        if (typeof value === 'string') return value.trim() !== '' && value !== 'N/A';
+        return !!value;
+      });
+    }
+    return false;
+  };
+
   // Debug: Log the payload structure
   useEffect(() => {
     if (diagnosticData.length > 0) {
@@ -196,29 +346,25 @@ export default function Component() {
         
         // Check TPH section
         if (firstItem.backendData.TPH) {
-          console.log('TPH Device:', firstItem.backendData.TPH.device);
-          console.log('TPH Sensor:', firstItem.backendData.TPH.sensor);
-          if (firstItem.backendData.TPH["Reduced Feed Operations"]) {
-            console.log('Reduced Feed Operations Device:', firstItem.backendData.TPH["Reduced Feed Operations"].device);
-            console.log('Reduced Feed Operations Sensor:', firstItem.backendData.TPH["Reduced Feed Operations"].sensor);
+          const tph = firstItem.backendData.TPH as any;
+          console.log('TPH Device:', tph.Device || 'N/A');
+          console.log('TPH Sensor:', tph.sensor ? JSON.stringify(tph.sensor) : 'N/A');
+          if (tph["Reduced Feed Operations"]) {
+            const rfo = tph["Reduced Feed Operations"] as any;
+            console.log('Reduced Feed Operations Device:', rfo.device || 'N/A');
+            console.log('Reduced Feed Operations Sensor:', rfo.sensor ? JSON.stringify(rfo.sensor) : 'N/A');
           }
         }
         
         // Check High Power section
         if (firstItem.backendData.High_Power) {
-          console.log('High Power Device:', firstItem.backendData.High_Power.device);
-          console.log('High Power Sensor:', firstItem.backendData.High_Power.sensor);
-          if (firstItem.backendData.High_Power.SKS_FAN) {
-            console.log('SKS Fan Device:', firstItem.backendData.High_Power.SKS_FAN.device);
-            console.log('SKS Fan Sensor:', firstItem.backendData.High_Power.SKS_FAN.sensor);
-          }
-          if (firstItem.backendData.High_Power.mill_auxiliaries) {
-            console.log('Mill Auxiliaries Device:', firstItem.backendData.High_Power.mill_auxiliaries.device);
-            console.log('Mill Auxiliaries Sensor:', firstItem.backendData.High_Power.mill_auxiliaries.sensor);
-          }
-          if (firstItem.backendData.High_Power.product_transportation) {
-            console.log('Product Transportation Device:', firstItem.backendData.High_Power.product_transportation.device);
-            console.log('Product Transportation Sensor:', firstItem.backendData.High_Power.product_transportation.sensor);
+          const hp = firstItem.backendData.High_Power as any;
+          console.log('High Power Device:', hp.Device || 'N/A');
+          console.log('High Power Sensor:', hp.sensor ? JSON.stringify(hp.sensor) : 'N/A');
+          if (hp.SKS_FAN) {
+            const sks = hp.SKS_FAN as any;
+            console.log('SKS Fan Device:', sks.device || 'N/A');
+            console.log('SKS Fan Sensor:', sks.sensor ? JSON.stringify(sks.sensor) : 'N/A');
           }
         }
         
@@ -351,7 +497,7 @@ export default function Component() {
           <Popover open={timePickerOpen} onOpenChange={setTimePickerOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" className="gap-2 bg-transparent">
-                Duration : <span className="font-semibold">Today</span>
+                Duration : <span className="font-semibold">{currentPreset}</span>
                 <span className="ml-2">{displayRange}</span>
                 <CalendarDays className="w-4 h-4 ml-2" />
               </Button>
@@ -365,6 +511,23 @@ export default function Component() {
               />
             </PopoverContent>
           </Popover>
+
+          {/* Add refresh button */}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="gap-2 bg-transparent"
+            onClick={() => {
+              // Force refresh by updating the time range slightly
+              setSelectedRange(prev => ({ ...prev }));
+            }}
+            disabled={loading}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </Button>
 
           <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-md">
             <span className="font-medium">Insight:</span>
@@ -578,7 +741,7 @@ export default function Component() {
                                 defaultValue={["lower-output", "idle-running", "high-power"]}
                               >
                                 <AccordionItem value="lower-output" className="border-b">
-                                  <AccordionTrigger className="px-4 py-3 hover:bg-gray-50">
+                                  <AccordionTrigger className="px-4 py-3 hover:bg-gray-50 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                       <span className="text-gray-900 font-bold">Lower Output (TPH)</span>
                                       <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
@@ -588,8 +751,25 @@ export default function Component() {
                                           clipRule="evenodd"
                                         />
                                       </svg>
-                                      <span className="font-medium text-gray-900">)</span>
                                     </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="ml-auto transition-all duration-200 hover:bg-yellow-100 hover:text-yellow-700 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95"
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        openMaintenancePopup(filteredData[index]?.backendData);
+                                      }}
+                                      disabled={
+                                        (!Array.isArray((filteredData[index]?.backendData?.TPH as any)?.RP1_maintance) || 
+                                         (filteredData[index]?.backendData?.TPH as any)?.RP1_maintance?.length === 0) &&
+                                        (!Array.isArray((filteredData[index]?.backendData?.TPH as any)?.RP2_maintance) || 
+                                         (filteredData[index]?.backendData?.TPH as any)?.RP2_maintance?.length === 0)
+                                      }
+                                      title="View maintenance events for RP1 and RP2"
+                                    >
+                                      <Wrench className="w-6 h-6 transition-transform duration-200 group-hover:rotate-12 group-hover:scale-110" />
+                                    </Button>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
@@ -606,12 +786,17 @@ export default function Component() {
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900">One RP Down</h4>
                                             <button
-                                              onClick={() => openPopup(filteredData[index].backendData.TPH.one_rp_down.rampup, "One RP Down", filteredData[index].backendData)}
-                                              className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                              title="View trend chart"
+                                              onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.one_rp_down?.rampup, "One RP Down", filteredData[index]?.backendData)}
+                                              className={`p-1 rounded transition-colors ${
+                                                hasTrendData(filteredData[index].backendData, "One RP Down")
+                                                  ? "hover:bg-gray-200 text-blue-600"
+                                                  : "text-gray-400 cursor-not-allowed opacity-50"
+                                              }`}
+                                              title={hasTrendData(filteredData[index].backendData, "One RP Down") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(filteredData[index].backendData, "One RP Down")}
                                             >
                                               <svg
-                                                className="w-4 h-4 text-blue-600"
+                                                className="w-4 h-4"
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -634,7 +819,7 @@ export default function Component() {
                                                       <div key={`one-rp-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {value}
+                                                          {String(value)}
                                                         </span>
                                                       </div>
                                                     ))
@@ -655,7 +840,7 @@ export default function Component() {
                                                       <div key={`one-rp-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(value)}
+                                                          {String(value ?? '')}
                                                         </span>
                                                       </div>
                                                     ))
@@ -663,7 +848,7 @@ export default function Component() {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(JSON.stringify(filteredData[index].backendData.TPH.one_rp_down))}
+                                                          {String(filteredData[index].backendData.TPH.one_rp_down)}
                                                         </span>
                                                       </div>
                                                     )
@@ -681,12 +866,17 @@ export default function Component() {
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900">Both RP Down</h4>
                                             <button
-                                              onClick={() => openPopup(filteredData[index].backendData.TPH.both_rp_down, "Both RP Down", filteredData[index].backendData)}
-                                              className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                              title="View trend chart"
+                                              onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.both_rp_down, "Both RP Down", filteredData[index]?.backendData)}
+                                              className={`p-1 rounded transition-colors ${
+                                                hasTrendData(filteredData[index].backendData, "Both RP Down")
+                                                  ? "hover:bg-gray-200 text-blue-600"
+                                                  : "text-gray-400 cursor-not-allowed opacity-50"
+                                              }`}
+                                              title={hasTrendData(filteredData[index].backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(filteredData[index].backendData, "Both RP Down")}
                                             >
                                               <svg
-                                                className="w-4 h-4 text-blue-600"
+                                                className="w-4 h-4"
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -709,7 +899,7 @@ export default function Component() {
                                                       <div key={`both-rp-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {value}
+                                                          {String(value)}
                                                         </span>
                                                       </div>
                                                     ))
@@ -730,7 +920,7 @@ export default function Component() {
                                                       <div key={`both-rp-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(value)}
+                                                          {String(value ?? '')}
                                                         </span>
                                                       </div>
                                                     ))
@@ -738,7 +928,7 @@ export default function Component() {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(JSON.stringify(filteredData[index].backendData.TPH.both_rp_down))}
+                                                          {String(filteredData[index].backendData.TPH.both_rp_down)}
                                                         </span>
                                                       </div>
                                                     )
@@ -756,12 +946,17 @@ export default function Component() {
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900">Reduced Feed Operations</h4>
                                             <button
-                                              onClick={() => openPopup(filteredData[index].backendData.TPH.lowfeed, "Reduced Feed Operations", filteredData[index].backendData)}
-                                              className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                              title="View trend chart"
+                                              onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.lowfeed, "Reduced Feed Operations", filteredData[index]?.backendData)}
+                                              className={`p-1 rounded transition-colors ${
+                                                hasTrendData(filteredData[index].backendData, "Reduced Feed Operations")
+                                                  ? "hover:bg-gray-200 text-blue-600"
+                                                  : "text-gray-400 cursor-not-allowed opacity-50"
+                                              }`}
+                                              title={hasTrendData(filteredData[index].backendData, "Reduced Feed Operations") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(filteredData[index].backendData, "Reduced Feed Operations")}
                                             >
                                               <svg
-                                                className="w-4 h-4 text-blue-600"
+                                                className="w-4 h-4"
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -784,14 +979,14 @@ export default function Component() {
                                                       <div key={`reduced-feed-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(value)}
+                                                          {String(value)}
                                                         </span>
                                                       </div>
                                                     ))
                                                     : (
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">{highlightNumbers(item)}</span>
+                                                        <span className="text-sm text-gray-600">{item}</span>
                                                       </div>
                                                     )
                                                   }
@@ -803,7 +998,7 @@ export default function Component() {
                                                       <div key={`reduced-feed-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(value)}
+                                                          {String(value ?? '')}
                                                         </span>
                                                       </div>
                                                     ))
@@ -811,7 +1006,7 @@ export default function Component() {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(JSON.stringify(filteredData[index].backendData.TPH["Reduced Feed Operations"]))}
+                                                          {String(filteredData[index].backendData.TPH["Reduced Feed Operations"])}
                                                         </span>
                                                       </div>
                                                     )
@@ -825,6 +1020,8 @@ export default function Component() {
                                         </div>
                                       )}
 
+                                      {/* In the TPH main section, add the View Maintenance button */}
+                                      {/* This button is now moved to the accordion header */}
 
                                     </div>
                                   </AccordionContent>
@@ -859,12 +1056,17 @@ export default function Component() {
                                             <div className="flex items-center justify-between mb-2">
                                               <h4 className="font-semibold text-gray-900">SKS Fan</h4>
                                               <button
-                                                onClick={() => openPopup(filteredData[index].backendData.High_Power.SKS_FAN, "SKS Fan", filteredData[index].backendData)}
-                                                className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                                title="View trend chart"
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.SKS_FAN, "SKS Fan", filteredData[index]?.backendData)}
+                                                className={`p-1 rounded transition-colors ${
+                                                  hasTrendData(filteredData[index].backendData, "SKS Fan")
+                                                    ? "hover:bg-gray-200 text-blue-600"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50"
+                                                }`}
+                                                title={hasTrendData(filteredData[index].backendData, "SKS Fan") ? "View trend chart" : "No trend data available"}
+                                                disabled={!hasTrendData(filteredData[index].backendData, "SKS Fan")}
                                               >
                                                 <svg
-                                                  className="w-4 h-4 text-blue-600"
+                                                  className="w-4 h-4"
                                                   fill="none"
                                                   stroke="currentColor"
                                                   viewBox="0 0 24 24"
@@ -890,7 +1092,7 @@ export default function Component() {
                                                   <div key={`sks-fan-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                     <span className="text-sm text-gray-600">
-                                                      {highlightNumbers(value)}
+                                                      {String(value ?? '')}
                                                     </span>
                                                   </div>
                                                 ))
@@ -905,12 +1107,17 @@ export default function Component() {
                                             <div className="flex items-center justify-between mb-2">
                                               <h4 className="font-semibold text-gray-900">Mill Auxiliaries</h4>
                                               <button
-                                                onClick={() => openPopup(filteredData[index].backendData.High_Power.mill_auxiliaries, "Mill Auxiliaries", filteredData[index].backendData)}
-                                                className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                                title="View trend chart"
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.mill_auxiliaries, "Mill Auxiliaries", filteredData[index]?.backendData)}
+                                                className={`p-1 rounded transition-colors ${
+                                                  hasTrendData(filteredData[index].backendData, "Mill Auxiliaries")
+                                                    ? "hover:bg-gray-200 text-blue-600"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50"
+                                                }`}
+                                                title={hasTrendData(filteredData[index].backendData, "Mill Auxiliaries") ? "View trend chart" : "No trend data available"}
+                                                disabled={!hasTrendData(filteredData[index].backendData, "Mill Auxiliaries")}
                                               >
                                                 <svg
-                                                  className="w-4 h-4 text-blue-600"
+                                                  className="w-4 h-4"
                                                   fill="none"
                                                   stroke="currentColor"
                                                   viewBox="0 0 24 24"
@@ -936,7 +1143,7 @@ export default function Component() {
                                                   <div key={`mill-aux-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                     <span className="text-sm text-gray-600">
-                                                      {highlightNumbers(value)}
+                                                      {String(value ?? '')}
                                                     </span>
                                                   </div>
                                                 ))
@@ -951,12 +1158,17 @@ export default function Component() {
                                             <div className="flex items-center justify-between mb-2">
                                               <h4 className="font-semibold text-gray-900">Product Transportation</h4>
                                               <button
-                                                onClick={() => openPopup(filteredData[index].backendData.High_Power.product_transportation, "Product Transportation", filteredData[index].backendData)}
-                                                className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                                title="View trend chart"
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.product_transportation, "Product Transportation", filteredData[index]?.backendData)}
+                                                className={`p-1 rounded transition-colors ${
+                                                  hasTrendData(filteredData[index].backendData, "Product Transportation")
+                                                    ? "hover:bg-gray-200 text-blue-600"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50"
+                                                }`}
+                                                title={hasTrendData(filteredData[index].backendData, "Product Transportation") ? "View trend chart" : "No trend data available"}
+                                                disabled={!hasTrendData(filteredData[index].backendData, "Product Transportation")}
                                               >
                                                 <svg
-                                                  className="w-4 h-4 text-blue-600"
+                                                  className="w-4 h-4"
                                                   fill="none"
                                                   stroke="currentColor"
                                                   viewBox="0 0 24 24"
@@ -982,7 +1194,7 @@ export default function Component() {
                                                   <div key={`product-transport-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                     <span className="text-sm text-gray-600">
-                                                      {highlightNumbers(value)}
+                                                      {String(value ?? '')}
                                                     </span>
                                                   </div>
                                                 ))
@@ -1017,7 +1229,7 @@ export default function Component() {
       {/* Popup Modal */}
       {popupData.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-full max-h-[100vh] overflow-hidden">
+          <div className="bg-white w-full max-w-6xl max-h-[95vh] overflow-y-auto rounded-lg shadow-lg">
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="text-lg font-semibold text-gray-900">
@@ -1043,7 +1255,7 @@ export default function Component() {
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h4 className="font-semibold text-gray-900 mb-3">Data Table</h4>
                     {popupData.data && Array.isArray(popupData.data) ? (
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto max-h-[75vh]">
                         <Table>
                           <TableHeader>
                             <TableRow>
@@ -1160,6 +1372,19 @@ export default function Component() {
                                     }).filter((event: any) => event.startTime && event.endTime)
                                   : undefined
                               }
+                              legendNames={
+                                popupData.section === "One RP Down" || popupData.section === "Both RP Down"
+                                  ? {
+                                      normal: "Raw mill feed rate",
+                                      event: "Ramp-up event"
+                                    }
+                                  : popupData.section === "Reduced Feed Operations"
+                                    ? {
+                                        normal: "Raw mill feed rate",
+                                        event: "Low feed event"
+                                      }
+                                  : undefined
+                              }
                             />
                           )}
                           
@@ -1202,6 +1427,124 @@ export default function Component() {
                       )}
                     </div>
                   </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Maintenance Popup Modal */}
+      {maintenancePopup.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">TPH Maintenance Events</h3>
+              <button onClick={closeMaintenancePopup} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              <Tabs value={maintenancePopup.activeTab} onValueChange={tab => setMaintenancePopup(p => ({ ...p, activeTab: tab as 'RP1' | 'RP2' }))}>
+                <TabsList className="mb-4">
+                  <TabsTrigger value="RP1">RP1 Maintenance</TabsTrigger>
+                  <TabsTrigger value="RP2">RP2 Maintenance</TabsTrigger>
+                </TabsList>
+                <TabsContent value="RP1">
+                  {maintenancePopup.rp1.length > 0 ? (
+                    <div className="overflow-x-auto max-h-[60vh]">
+                      <Table className="min-w-full border rounded-lg">
+                        <TableHeader className="sticky top-0 bg-white z-10">
+                          <TableRow>
+                            <TableHead className="px-4 py-2 text-left border-b">Start Date Time</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b">End Date Time</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b max-w-[180px] truncate cursor-pointer" title={maintenancePopup.rp1[0]["Event Details"]}>
+                              Event Details
+                            </TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Department</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Stoppage Category</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp1[0]["Reason of Stoppage"]}>
+                              Reason of Stoppage
+                            </TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Calculated Duration (H:M)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {maintenancePopup.rp1.map((item, i) => (
+                            <TableRow key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Start Date Time"]}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["End Date Time"]}</TableCell>
+                              <TableCell
+                                className="px-4 py-3 align-top border-b max-w-[180px] truncate cursor-pointer"
+                                title={item["Event Details"]}
+                              >
+                                {item["Event Details"]}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Department"]}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Stoppage Category"]}</TableCell>
+                              <TableCell
+                                className="px-4 py-3 align-top border-b max-w-[140px] truncate cursor-pointer"
+                                title={item["Reason of Stoppage"]}
+                              >
+                                {item["Reason of Stoppage"]}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Calculated Duration (H:M)"]}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No RP1 maintenance data available.</p>
+                  )}
+                </TabsContent>
+                <TabsContent value="RP2">
+                  {maintenancePopup.rp2.length > 0 ? (
+                    <div className="overflow-x-auto max-h-[60vh]">
+                      <Table className="min-w-full border rounded-lg">
+                        <TableHeader className="sticky top-0 bg-white z-10">
+                          <TableRow>
+                            <TableHead className="px-4 py-2 text-left border-b">Start Date Time</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b">End Date Time</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b max-w-[180px] truncate cursor-pointer" title={maintenancePopup.rp2[0]["Event Details"]}>
+                              Event Details
+                            </TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Department</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Stoppage Category</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp2[0]["Reason of Stoppage"]}>
+                              Reason of Stoppage
+                            </TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Calculated Duration (H:M)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {maintenancePopup.rp2.map((item, i) => (
+                            <TableRow key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Start Date Time"]}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["End Date Time"]}</TableCell>
+                              <TableCell
+                                className="px-4 py-3 align-top border-b max-w-[180px] truncate cursor-pointer"
+                                title={item["Event Details"]}
+                              >
+                                {item["Event Details"]}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Department"]}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Stoppage Category"]}</TableCell>
+                              <TableCell
+                                className="px-4 py-3 align-top border-b max-w-[140px] truncate cursor-pointer"
+                                title={item["Reason of Stoppage"]}
+                              >
+                                {item["Reason of Stoppage"]}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Calculated Duration (H:M)"]}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No RP2 maintenance data available.</p>
+                  )}
                 </TabsContent>
               </Tabs>
             </div>

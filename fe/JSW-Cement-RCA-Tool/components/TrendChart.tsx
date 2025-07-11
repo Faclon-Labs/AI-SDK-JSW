@@ -14,6 +14,7 @@ interface TrendChartProps {
     endTime: string;
     color?: string;
   }>;
+  legendNames?: Record<string, string>; // Add this line
 }
 
 interface DataPoint {
@@ -21,7 +22,7 @@ interface DataPoint {
   [key: string]: any;
 }
 
-export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events }: TrendChartProps) {
+export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events, legendNames }: TrendChartProps) {
   const [data, setData] = useState<DataPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -285,7 +286,13 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
             labelFormatter={formatTime}
             formatter={(value: any, name: string) => [value, name]}
           />
-          <Legend />
+          <Legend formatter={(value) => {
+            if (legendNames && legendNames[value]) return legendNames[value];
+            // Special case for TPH segmented lines
+            if (value === 'Raw mill feed rate_event') return legendNames?.['event'] || 'Ramp-up event';
+            if (value === 'Raw mill feed rate_normal') return legendNames?.['normal'] || 'Raw mill feed rate';
+            return value;
+          }} />
           {renderColoredLines()}
         </LineChart>
       </ResponsiveContainer>
