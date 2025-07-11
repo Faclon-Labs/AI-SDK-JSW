@@ -1,0 +1,13 @@
+{
+  "apps": [
+    {
+      "name": "JSW-RCA-NEW",
+      "script": "npm",
+      "args": "start",
+      "env": {
+        "PORT": "5001"
+      },
+      "watch": false
+    }
+  ]
+}

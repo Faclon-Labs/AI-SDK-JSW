@@ -2,7 +2,7 @@ import { BruceHandler } from './connector-userid-ts/dist/index.js';
 
 const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5',
-  dataUrl: 'datads.iosense.io',
+  dataUrl: 'datads-ext.iosense.io',
   onPrem: false,
   tz: 'UTC'
 };

@@ -59,7 +59,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
           endTime,
         });
 
-        const response = await fetch('/api/trend', {
+        const response = await fetch('/jsw-rca-new/api/trend', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
