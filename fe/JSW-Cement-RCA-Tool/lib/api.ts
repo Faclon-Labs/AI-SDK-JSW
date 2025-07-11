@@ -12,6 +12,14 @@ const BACKEND_CONFIG = {
 // Initialize the BruceHandler
 const bruceHandler = new BruceHandler(BACKEND_CONFIG);
 
+// TimeRange interface to match the TimeRangePicker
+export interface TimeRange {
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+}
+
 // Fetch all insight results (without date filter to get all available data)
 export async function fetchAllInsightResults() {
   const insightId = 'INS_015ce0dcf91c';
@@ -28,8 +36,32 @@ export async function fetchAllInsightResults() {
   }
 }
 
-// Fetch insight results for a given date range
-export async function fetchInsightResults({ startDate, endDate }) {
+// Fetch insight results for a given time range
+export async function fetchInsightResultsByTimeRange(timeRange: TimeRange) {
+  const insightId = 'INS_015ce0dcf91c';
+  
+  // Convert time range to ISO strings
+  const startDateTime = `${timeRange.startDate}T${timeRange.startTime}:00.000Z`;
+  const endDateTime = `${timeRange.endDate}T${timeRange.endTime}:59.999Z`;
+  
+  try {
+    const result = await bruceHandler.fetchInsightResults({
+      insightId,
+      filter: { 
+        startDate: startDateTime,
+        endDate: endDateTime
+      },
+      pagination: { page: 1, count: 50 },
+    });
+    return result.results;
+  } catch (error) {
+    console.error('Error fetching insight results with time range:', error);
+    throw error;
+  }
+}
+
+// Fetch insight results for a given date range (legacy function)
+export async function fetchInsightResults({ startDate, endDate }: { startDate: string; endDate: string }) {
   const insightId = 'INS_015ce0dcf91c';
   try {
     const result = await bruceHandler.fetchInsightResults({
