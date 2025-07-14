@@ -15,6 +15,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import TrendChart from "./components/TrendChart"
 import { TimeRangePicker, TimeRange } from "./components/ui/TimeRangePicker";
 import { Popover, PopoverTrigger, PopoverContent } from "./components/ui/popover";
+import { Component as LumaSpin } from "./components/ui/luma-spin";
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+// Extend jsPDF type to include autoTable
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: typeof autoTable;
+  }
+}
 
 // Utility functions for formatting
 const formatNumber = (value: any): string => {
@@ -70,13 +81,28 @@ const highlightNumbers = (text: any) => {
   });
 };
 
+// Helper to convert IST date+time to UTC ISO string
+function toUTCISOStringFromIST(dateStr: string, timeStr: string) {
+  // dateStr: 'YYYY-MM-DD', timeStr: 'HH:mm'
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hour, minute] = timeStr.split(':').map(Number);
+  // Create a Date object in IST
+  const istDate = new Date(Date.UTC(year, month - 1, day, hour - 5, minute - 30));
+  // Add 5 hours 30 minutes to get IST
+  istDate.setHours(istDate.getHours() + 5, istDate.getMinutes() + 30);
+  return istDate.toISOString();
+}
+
 export default function Component() {
   // Add state for time picker modal and range
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [selectedRange, setSelectedRange] = useState<TimeRange>({
-    startDate: new Date().toISOString().slice(0, 10),
+    startDate: startOfMonth.toISOString().slice(0, 10),
     startTime: "00:00",
-    endDate: new Date().toISOString().slice(0, 10),
+    endDate: endOfMonth.toISOString().slice(0, 10),
     endTime: "23:59",
   });
 
@@ -102,6 +128,7 @@ export default function Component() {
   // Pass the selected time range to the hook
   const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
   const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "all">("all")
+  const [searchTerm, setSearchTerm] = useState<string>("")
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [popupData, setPopupData] = useState<{isOpen: boolean, data: any, section: string, backendData?: any}>({
     isOpen: false,
@@ -231,6 +258,35 @@ export default function Component() {
   const extractSensorIds = (data: any, section: string): string[] | null => {
     if (!data) return null;
     
+    // Special handling for High Power section
+    if (section === "High_Power") {
+      // For High Power, we need to extract sensors from subsections
+      const highPowerData = data[section];
+      if (!highPowerData) return null;
+      
+      const allSensors: string[] = [];
+      
+      // Iterate through all subsections (SKS_FAN, mill_auxiliaries, product_transportation, etc.)
+      for (const [subsectionKey, subsectionData] of Object.entries(highPowerData)) {
+        if (typeof subsectionData === 'object' && subsectionData !== null) {
+          const subsection = subsectionData as any;
+          
+          // Check if subsection has sensor information
+          if (subsection.sensor) {
+            if (Array.isArray(subsection.sensor)) {
+              allSensors.push(...subsection.sensor);
+            } else if (typeof subsection.sensor === 'object') {
+              allSensors.push(...Object.keys(subsection.sensor));
+            } else {
+              allSensors.push(subsection.sensor);
+            }
+          }
+        }
+      }
+      
+      return allSensors.length > 0 ? allSensors : null;
+    }
+    
     // Look for sensor data in the specific section
     const sectionData = data[section];
     if (!sectionData) return null;
@@ -268,6 +324,41 @@ export default function Component() {
     };
     
     return searchForSensors(sectionData);
+  };
+
+  // Function to extract sensor names for legend
+  const extractSensorNames = (data: any, section: string): Record<string, string> | undefined => {
+    if (!data) return undefined;
+    
+    // Special handling for High Power section
+    if (section === "High_Power") {
+      const highPowerData = data[section];
+      if (!highPowerData) return undefined;
+      
+      const sensorNames: Record<string, string> = {};
+      
+      // Iterate through all subsections
+      for (const [subsectionKey, subsectionData] of Object.entries(highPowerData)) {
+        if (typeof subsectionData === 'object' && subsectionData !== null) {
+          const subsection = subsectionData as any;
+          
+          // Check if subsection has sensor information
+          if (subsection.sensor) {
+            if (typeof subsection.sensor === 'object') {
+              // For object format like { "D104": "SKS Fan Speed" }
+              for (const [sensorId, sensorName] of Object.entries(subsection.sensor)) {
+                sensorNames[sensorId] = sensorName as string;
+              }
+            }
+          }
+        }
+      }
+      
+      return Object.keys(sensorNames).length > 0 ? sensorNames : undefined;
+    }
+    
+    // For other sections, return undefined (use default sensor IDs as names)
+    return undefined;
   };
 
   // Function to check if trend data should be shown
@@ -392,17 +483,6 @@ export default function Component() {
     }
   }, [diagnosticData]);
 
-  // Create expanded data from real backend data
-  const expandedData = diagnosticData.reduce((acc, item, index) => {
-    acc[index] = {
-      targetSPC: item.details?.targetSPC || "N/A",
-      daySPC: item.details?.daySPC || "N/A", 
-      deviation: item.details?.deviation || "N/A",
-      impact: item.details?.impact || "N/A"
-    };
-    return acc;
-  }, {} as Record<number, { targetSPC: string; daySPC: string; deviation: string; impact: string }>);
-
   const toggleRowExpansion = (index: number) => {
     const newExpandedRows = new Set(expandedRows)
     if (newExpandedRows.has(index)) {
@@ -431,17 +511,608 @@ export default function Component() {
     })
   }
 
+  // Group data by date for PDF report
+  const groupDataByDate = (data: any[]) => {
+    const groupedData: Record<string, any[]> = {};
+    
+    data.forEach(item => {
+      const date = new Date(item.timestamp).toDateString();
+      if (!groupedData[date]) {
+        groupedData[date] = [];
+      }
+      groupedData[date].push(item);
+    });
+    
+    return groupedData;
+  };
+
+  // PDF export function
+  const exportToPDF = () => {
+    try {
+      const doc = new jsPDF('p', 'mm', 'a4');
+      let yPosition = 20;
+      const pageHeight = doc.internal.pageSize.height;
+      const margin = 20;
+      
+      // Title
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Diagnostic Report', margin, yPosition);
+      yPosition += 15;
+      
+      // Report info
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, yPosition);
+      yPosition += 8;
+      doc.text(`Time Range: ${selectedRange.startDate} ${selectedRange.startTime} - ${selectedRange.endDate} ${selectedRange.endTime}`, margin, yPosition);
+      yPosition += 8;
+      doc.text(`Total Records: ${filteredData.length}`, margin, yPosition);
+      yPosition += 8;
+      doc.text(`Filter Applied: ${selectedFilter === 'all' ? 'All' : selectedFilter.charAt(0).toUpperCase() + selectedFilter.slice(1)}`, margin, yPosition);
+      yPosition += 15;
+      
+      // Summary statistics
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Summary by Status:', margin, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      const highCount = diagnosticData.filter(item => item.status.toLowerCase() === 'high').length;
+      const mediumCount = diagnosticData.filter(item => item.status.toLowerCase() === 'medium').length;
+      const lowCount = diagnosticData.filter(item => item.status.toLowerCase() === 'low').length;
+      
+      doc.text(`High Priority: ${highCount}`, margin, yPosition);
+      yPosition += 6;
+      doc.text(`Medium Priority: ${mediumCount}`, margin, yPosition);
+      yPosition += 6;
+      doc.text(`Low Priority: ${lowCount}`, margin, yPosition);
+      yPosition += 15;
+      
+      // Group data by date
+      const groupedData = groupDataByDate(filteredData);
+      const sortedDates = Object.keys(groupedData).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      
+      // Daily sections
+      sortedDates.forEach((date, dateIndex) => {
+        const dailyData = groupedData[date];
+        
+        // Check if we need a new page
+        if (yPosition > pageHeight - 80) {
+          doc.addPage();
+          yPosition = 20;
+        }
+        
+        // Date header
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${date} (${dailyData.length} records)`, margin, yPosition);
+        yPosition += 10;
+        
+        // Daily summary table
+        const dailyTableData = dailyData.map(item => [
+          formatTime(item.timestamp),
+          item.resultName || 'N/A',
+          item.issue && item.issue.length > 30 ? item.issue.substring(0, 30) + '...' : item.issue || 'N/A',
+          item.status || 'N/A',
+          item.backendData?.SPC?.Impact || 'N/A'
+        ]);
+        
+        try {
+          autoTable(doc, {
+            startY: yPosition,
+            head: [['Time', 'Asset', 'Issue', 'Status', 'Impact']],
+            body: dailyTableData,
+            styles: { fontSize: 9, cellPadding: 2 },
+            headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+            columnStyles: {
+              0: { cellWidth: 25 },
+              1: { cellWidth: 30 },
+              2: { cellWidth: 60 },
+              3: { cellWidth: 20 },
+              4: { cellWidth: 25 }
+            },
+            margin: { left: margin, right: margin }
+          });
+          
+          // Get final Y position after table
+          yPosition = (doc as any).lastAutoTable?.finalY || yPosition + (dailyTableData.length * 10) + 20;
+        } catch (tableError) {
+          console.warn('Error creating table, continuing with text format:', tableError);
+          // Fallback to text format if table fails
+          dailyTableData.forEach((row, index) => {
+            if (yPosition > pageHeight - 20) {
+              doc.addPage();
+              yPosition = 20;
+            }
+            doc.setFontSize(10);
+            doc.text(`${row[0]} | ${row[1]} | ${row[2]} | ${row[3]}`, margin, yPosition);
+            yPosition += 6;
+          });
+        }
+        
+        yPosition += 15;
+        
+        // Detailed analysis for each record of the day
+        dailyData.forEach((item, itemIndex) => {
+          // Check if we need a new page
+          if (yPosition > pageHeight - 60) {
+            doc.addPage();
+            yPosition = 20;
+          }
+          
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'bold');
+          doc.text(`Record ${itemIndex + 1}: ${item.resultName || 'N/A'}`, margin, yPosition);
+          yPosition += 8;
+          
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          
+          // SPC Data if available
+          if (item.backendData?.SPC) {
+            const spc = item.backendData.SPC;
+            doc.text(`SPC Target: ${formatNumber(spc.target)} kWh/t`, margin + 5, yPosition);
+            yPosition += 5;
+            doc.text(`SPC Today: ${formatNumber(spc.today)} kWh/t`, margin + 5, yPosition);
+            yPosition += 5;
+            doc.text(`Deviation: ${formatNumber(spc.deviation)}%`, margin + 5, yPosition);
+            yPosition += 5;
+            doc.text(`Impact: ${spc.Impact || 'N/A'}`, margin + 5, yPosition);
+            yPosition += 5;
+          }
+          
+          // TPH Data if available
+          if (item.backendData?.TPH) {
+            const tph = item.backendData.TPH;
+            doc.text(`TPH Analysis:`, margin + 5, yPosition);
+            yPosition += 5;
+            doc.text(`  Device: ${tph.Device || 'N/A'}`, margin + 10, yPosition);
+            yPosition += 5;
+            doc.text(`  Cause: ${tph.cause || 'N/A'}`, margin + 10, yPosition);
+            yPosition += 5;
+            if (tph.target) {
+              doc.text(`  Target: ${formatNumber(tph.target)}`, margin + 10, yPosition);
+              yPosition += 5;
+            }
+          }
+          
+          // High Power Data if available
+          if (item.backendData?.High_Power) {
+            const hp = item.backendData.High_Power;
+            doc.text(`High Power Analysis:`, margin + 5, yPosition);
+            yPosition += 5;
+            
+            Object.entries(hp).forEach(([subsection, data]) => {
+              if (typeof data === 'object' && data !== null && subsection !== 'Device') {
+                const subsectionData = data as any;
+                doc.text(`  ${subsection}: ${subsectionData.cause || 'N/A'}`, margin + 10, yPosition);
+                yPosition += 5;
+              }
+            });
+          }
+          
+          yPosition += 5; // Space between records
+        });
+        
+        yPosition += 10; // Space between days
+      });
+      
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+      const filename = `Diagnostic_Report_${timestamp}.pdf`;
+      
+      // Save the PDF
+      doc.save(filename);
+      
+      console.log('PDF report generated successfully:', filename);
+    } catch (error) {
+      console.error('Error generating PDF report:', error);
+      alert(`Error generating PDF report: ${error.message}. Please try again.`);
+    }
+  };
+
+  // Excel export function
+  const exportToExcel = () => {
+    try {
+      // Create a new workbook
+      const workbook = XLSX.utils.book_new();
+      
+      // Prepare summary data
+      const summaryData = [
+        ['Diagnostic Report'],
+        [''],
+        ['Report Generated:', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
+        ['Time Range:', `${selectedRange.startDate} ${selectedRange.startTime} - ${selectedRange.endDate} ${selectedRange.endTime}`],
+        ['Total Records:', filteredData.length.toString()],
+        ['Filter Applied:', selectedFilter === 'all' ? 'All' : selectedFilter.charAt(0).toUpperCase() + selectedFilter.slice(1)],
+        ['Search Term:', searchTerm || 'None'],
+        [''],
+        ['Summary by Status:'],
+        ['High Priority:', diagnosticData.filter(item => item.status.toLowerCase() === 'high').length.toString()],
+        ['Medium Priority:', diagnosticData.filter(item => item.status.toLowerCase() === 'medium').length.toString()],
+        ['Low Priority:', diagnosticData.filter(item => item.status.toLowerCase() === 'low').length.toString()],
+        ['']
+      ];
+
+      // Add summary sheet
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+
+      // Prepare main diagnostic data
+      const diagnosticHeaders = [
+        'Timestamp',
+        'Asset Name',
+        'Detected Issue',
+        'Status',
+        'Query Time Start',
+        'Query Time End',
+        'SPC Target',
+        'SPC Today',
+        'SPC Deviation (%)',
+        'SPC Impact'
+      ];
+
+      const diagnosticRows = filteredData.map(item => [
+        formatTime(item.timestamp),
+        item.resultName || 'N/A',
+        item.backendData?.detected_issue || 'N/A',
+        item.status,
+        item.backendData?.query_time?.[0] || 'N/A',
+        item.backendData?.query_time?.[1] || 'N/A',
+        formatNumber(item.backendData?.SPC?.target),
+        formatNumber(item.backendData?.SPC?.today),
+        formatNumber(item.backendData?.SPC?.deviation),
+        item.backendData?.SPC?.Impact || 'N/A'
+      ]);
+
+      const diagnosticSheet = XLSX.utils.aoa_to_sheet([diagnosticHeaders, ...diagnosticRows]);
+      XLSX.utils.book_append_sheet(workbook, diagnosticSheet, 'Diagnostic Data');
+
+      // Prepare TPH section data if available
+      const tphData = [];
+      const tphHeaders = [
+        'Asset Name',
+        'Timestamp',
+        'Device',
+        'Target TPH',
+        'Cause',
+        'Both RP Down Duration',
+        'Reduced Feed Duration'
+      ];
+      tphData.push(tphHeaders);
+
+      filteredData.forEach(item => {
+        if (item.backendData?.TPH) {
+          const tph = item.backendData.TPH;
+          tphData.push([
+            item.resultName || 'N/A',
+            formatTime(item.timestamp),
+            (tph as any).Device || 'N/A',
+            formatNumber((tph as any).target),
+            (tph as any).cause || 'N/A',
+            (tph as any).both_rp_down?.[1] || 'N/A',
+            (tph as any)["Reduced Feed Operations"]?.[1] || 'N/A'
+          ]);
+        }
+      });
+
+      if (tphData.length > 1) {
+        const tphSheet = XLSX.utils.aoa_to_sheet(tphData);
+        XLSX.utils.book_append_sheet(workbook, tphSheet, 'TPH Analysis');
+      }
+
+      // Prepare High Power section data if available
+      const highPowerData = [];
+      const highPowerHeaders = [
+        'Asset Name',
+        'Timestamp',
+        'Device',
+        'Subsection',
+        'Cause',
+        'Sensor Info'
+      ];
+      highPowerData.push(highPowerHeaders);
+
+      filteredData.forEach(item => {
+        if (item.backendData?.High_Power) {
+          const hp = item.backendData.High_Power;
+          Object.entries(hp).forEach(([subsection, data]) => {
+            if (typeof data === 'object' && data !== null && subsection !== 'Device') {
+              const subsectionData = data as any;
+              highPowerData.push([
+                item.resultName || 'N/A',
+                formatTime(item.timestamp),
+                (hp as any).Device || 'N/A',
+                subsection,
+                subsectionData.cause || 'N/A',
+                subsectionData.sensor ? JSON.stringify(subsectionData.sensor) : 'N/A'
+              ]);
+            }
+          });
+        }
+      });
+
+      if (highPowerData.length > 1) {
+        const highPowerSheet = XLSX.utils.aoa_to_sheet(highPowerData);
+        XLSX.utils.book_append_sheet(workbook, highPowerSheet, 'High Power Analysis');
+      }
+
+      // Prepare maintenance events data
+      const maintenanceData = [];
+      const maintenanceHeaders = [
+        'Asset Name',
+        'Equipment',
+        'Start Date Time',
+        'End Date Time',
+        'Event Details',
+        'Department',
+        'Stoppage Category',
+        'Reason of Stoppage',
+        'Duration'
+      ];
+      maintenanceData.push(maintenanceHeaders);
+
+      filteredData.forEach(item => {
+        if (item.backendData?.TPH) {
+          const tph = item.backendData.TPH as any;
+          // RP1 maintenance
+          if (tph.RP1_maintance && Array.isArray(tph.RP1_maintance)) {
+            tph.RP1_maintance.forEach((event: any) => {
+              maintenanceData.push([
+                item.resultName || 'N/A',
+                'RP1',
+                event['Start Date Time'] || 'N/A',
+                event['End Date Time'] || 'N/A',
+                event['Event Details'] || 'N/A',
+                event['Department'] || 'N/A',
+                event['Stoppage Category'] || 'N/A',
+                event['Reason of Stoppage'] || 'N/A',
+                event['Calculated Duration (H:M)'] || 'N/A'
+              ]);
+            });
+          }
+          // RP2 maintenance
+          if (tph.RP2_maintance && Array.isArray(tph.RP2_maintance)) {
+            tph.RP2_maintance.forEach((event: any) => {
+              maintenanceData.push([
+                item.resultName || 'N/A',
+                'RP2',
+                event['Start Date Time'] || 'N/A',
+                event['End Date Time'] || 'N/A',
+                event['Event Details'] || 'N/A',
+                event['Department'] || 'N/A',
+                event['Stoppage Category'] || 'N/A',
+                event['Reason of Stoppage'] || 'N/A',
+                event['Calculated Duration (H:M)'] || 'N/A'
+              ]);
+            });
+          }
+        }
+      });
+
+      if (maintenanceData.length > 1) {
+        const maintenanceSheet = XLSX.utils.aoa_to_sheet(maintenanceData);
+        XLSX.utils.book_append_sheet(workbook, maintenanceSheet, 'Maintenance Events');
+      }
+
+      // Style the sheets (make headers bold)
+      Object.keys(workbook.Sheets).forEach(sheetName => {
+        const sheet = workbook.Sheets[sheetName];
+        const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+        
+        // Style first row as header
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
+          if (sheet[cellAddress]) {
+            sheet[cellAddress].s = {
+              font: { bold: true },
+              fill: { fgColor: { rgb: 'E3F2FD' } }
+            };
+          }
+        }
+        
+        // Auto-fit columns
+        const cols = [];
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          let maxWidth = 10;
+          for (let row = range.s.r; row <= range.e.r; row++) {
+            const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+            if (sheet[cellAddress] && sheet[cellAddress].v) {
+              const cellValue = sheet[cellAddress].v.toString();
+              maxWidth = Math.max(maxWidth, cellValue.length);
+            }
+          }
+          cols.push({ width: Math.min(maxWidth + 2, 50) });
+        }
+        sheet['!cols'] = cols;
+      });
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+      const filename = `Diagnostic_Report_${timestamp}.xlsx`;
+
+      // Save the file
+      XLSX.writeFile(workbook, filename);
+      
+      console.log('Excel file exported successfully:', filename);
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      alert('Error exporting data to Excel. Please try again.');
+    }
+  }
+
   const filteredData = diagnosticData.filter((item) => {
-    if (selectedFilter === "all") return true
-    return item.status.toLowerCase() === selectedFilter
+    // First apply status filter
+    const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter
+    
+    // Then apply search filter across all data
+    const searchMatch = !searchTerm || (() => {
+      const searchLower = searchTerm.toLowerCase()
+      
+      // Search in basic fields
+      const basicMatch = 
+        item.millName.toLowerCase().includes(searchLower) ||
+        item.issue.toLowerCase().includes(searchLower) ||
+        item.status.toLowerCase().includes(searchLower) ||
+        item.lastUpdated.toLowerCase().includes(searchLower) ||
+        (item.details?.targetSPC && item.details.targetSPC.toLowerCase().includes(searchLower)) ||
+        (item.details?.daySPC && item.details.daySPC.toLowerCase().includes(searchLower)) ||
+        (item.details?.deviation && item.details.deviation.toLowerCase().includes(searchLower)) ||
+        (item.details?.impact && item.details.impact.toLowerCase().includes(searchLower))
+      
+      if (basicMatch) return true
+      
+      // Search in backend data (TPH section)
+      if (item.backendData?.TPH) {
+        const tph = item.backendData.TPH
+        if (
+          (tph.cause && tph.cause.toLowerCase().includes(searchLower)) ||
+          (tph.Device && tph.Device.toLowerCase().includes(searchLower)) ||
+          (tph.target && tph.target.toString().includes(searchLower)) ||
+          (tph.sensor && JSON.stringify(tph.sensor).toLowerCase().includes(searchLower))
+        ) return true
+        
+        // Search in TPH subsections
+        if (tph.one_rp_down) {
+          const oneRpDown = tph.one_rp_down
+          if (typeof oneRpDown === 'object') {
+            for (const key in oneRpDown) {
+              if (typeof oneRpDown[key] === 'string' && oneRpDown[key].toLowerCase().includes(searchLower)) {
+                return true
+              }
+            }
+          }
+        }
+        
+        if (tph.both_rp_down) {
+          const bothRpDown = tph.both_rp_down
+          if (typeof bothRpDown === 'object') {
+            for (const key in bothRpDown) {
+              if (typeof bothRpDown[key] === 'string' && bothRpDown[key].toLowerCase().includes(searchLower)) {
+                return true
+              }
+            }
+          }
+        }
+        
+        if (tph["Reduced Feed Operations"]) {
+          const reducedFeed = tph["Reduced Feed Operations"]
+          if (typeof reducedFeed === 'object') {
+            for (const key in reducedFeed) {
+              if (typeof reducedFeed[key] === 'string' && reducedFeed[key].toLowerCase().includes(searchLower)) {
+                return true
+              }
+            }
+          }
+        }
+        
+        // Search in maintenance data
+        if (tph.RP1_maintance && Array.isArray(tph.RP1_maintance)) {
+          for (const maintenance of tph.RP1_maintance) {
+            if (
+              (maintenance["Event Details"] && maintenance["Event Details"].toLowerCase().includes(searchLower)) ||
+              (maintenance["Department"] && maintenance["Department"].toLowerCase().includes(searchLower)) ||
+              (maintenance["Stoppage Category"] && maintenance["Stoppage Category"].toLowerCase().includes(searchLower)) ||
+              (maintenance["Reason of Stoppage"] && maintenance["Reason of Stoppage"].toLowerCase().includes(searchLower))
+            ) return true
+          }
+        }
+        
+        if (tph.RP2_maintance && Array.isArray(tph.RP2_maintance)) {
+          for (const maintenance of tph.RP2_maintance) {
+            if (
+              (maintenance["Event Details"] && maintenance["Event Details"].toLowerCase().includes(searchLower)) ||
+              (maintenance["Department"] && maintenance["Department"].toLowerCase().includes(searchLower)) ||
+              (maintenance["Stoppage Category"] && maintenance["Stoppage Category"].toLowerCase().includes(searchLower)) ||
+              (maintenance["Reason of Stoppage"] && maintenance["Reason of Stoppage"].toLowerCase().includes(searchLower))
+            ) return true
+          }
+        }
+        
+        // Search in lowfeed data
+        if (tph.lowfeed && Array.isArray(tph.lowfeed)) {
+          for (const lowfeed of tph.lowfeed) {
+            if (
+              (lowfeed.period_start && lowfeed.period_start.toLowerCase().includes(searchLower)) ||
+              (lowfeed.period_end && lowfeed.period_end.toLowerCase().includes(searchLower)) ||
+              (lowfeed.end_reason && lowfeed.end_reason.toLowerCase().includes(searchLower)) ||
+              (lowfeed.pumps_running && lowfeed.pumps_running.toString().includes(searchLower)) ||
+              (lowfeed.expected_tph && lowfeed.expected_tph.toString().includes(searchLower)) ||
+              (lowfeed.avg_tph && lowfeed.avg_tph.toString().includes(searchLower)) ||
+              (lowfeed.min_tph && lowfeed.min_tph.toString().includes(searchLower)) ||
+              (lowfeed.max_tph && lowfeed.max_tph.toString().includes(searchLower)) ||
+              (lowfeed.efficiency_loss_percent && lowfeed.efficiency_loss_percent.toString().includes(searchLower))
+            ) return true
+          }
+        }
+      }
+      
+      // Search in High Power section
+      if (item.backendData?.High_Power) {
+        const hp = item.backendData.High_Power
+        if (
+          (hp.Device && hp.Device.toLowerCase().includes(searchLower)) ||
+          (hp.sensor && JSON.stringify(hp.sensor).toLowerCase().includes(searchLower))
+        ) return true
+        
+        if (hp.SKS_FAN) {
+          const sksFan = hp.SKS_FAN
+          if (
+            (sksFan.cause && sksFan.cause.toLowerCase().includes(searchLower)) ||
+            (sksFan.sensor && JSON.stringify(sksFan.sensor).toLowerCase().includes(searchLower)) ||
+            (sksFan.Target && JSON.stringify(sksFan.Target).toLowerCase().includes(searchLower))
+          ) return true
+        }
+        
+        if (hp.mill_auxiliaries) {
+          const millAux = hp.mill_auxiliaries
+          if (millAux.cause && millAux.cause.toLowerCase().includes(searchLower)) {
+            return true
+          }
+        }
+        
+        if (hp.product_transportation) {
+          const productTrans = hp.product_transportation
+          if (productTrans.cause && productTrans.cause.toLowerCase().includes(searchLower)) {
+            return true
+          }
+        }
+      }
+      
+      // Search in idle running section
+      if (item.backendData?.idle_running) {
+        const idleRunning = item.backendData.idle_running
+        if (idleRunning.cause && idleRunning.cause.toLowerCase().includes(searchLower)) {
+          return true
+        }
+      }
+      
+      return false
+    })()
+    
+    return statusMatch && searchMatch
   })
+
+  // Create expanded data from filtered data
+  const expandedData = filteredData.reduce((acc, item, index) => {
+    acc[index] = {
+      targetSPC: item.details?.targetSPC || "N/A",
+      daySPC: item.details?.daySPC || "N/A", 
+      deviation: item.details?.deviation || "N/A",
+      impact: item.details?.impact || "N/A"
+    };
+    return acc;
+  }, {} as Record<number, { targetSPC: string; daySPC: string; deviation: string; impact: string }>);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <p>Loading diagnostic data...</p>
+        <div className="text-center flex flex-col items-center">
+          <LumaSpin />
+          <p className="mt-4 text-gray-600">Loading diagnostic data...</p>
         </div>
       </div>
     );
@@ -581,17 +1252,49 @@ export default function Component() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg font-semibold">Diagnostic View</CardTitle>
-              <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                <Download className="w-4 h-4" />
-                Export
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2 bg-transparent hover:bg-blue-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export Report
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={exportToExcel}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export to Excel
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={exportToPDF}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export to PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </CardHeader>
           <CardContent>
             <div className="mb-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input placeholder="Search faults, assets, or status..." className="pl-10 pr-10" />
+                <Input 
+                  placeholder="Search faults, assets, or status..." 
+                  className="pl-10 pr-10" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-8 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
                 <Filter className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               </div>
             </div>
@@ -776,7 +1479,7 @@ export default function Component() {
                                       {/* TPH Cause from backend */}
                                       {filteredData[index]?.backendData?.TPH?.cause && (
                                         <p className="text-gray-700">
-                                          {filteredData[index].backendData.TPH.cause}
+                                          {highlightNumbers(filteredData[index].backendData.TPH.cause)}
                                         </p>
                                       )}
 
@@ -819,14 +1522,14 @@ export default function Component() {
                                                       <div key={`one-rp-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(value)}
+                                                          {highlightNumbers(String(value))}
                                                         </span>
                                                       </div>
                                                     ))
                                                     : (
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">{item}</span>
+                                                        <span className="text-sm text-gray-600">{highlightNumbers(item)}</span>
                                                       </div>
                                                     )
                                                   }
@@ -840,7 +1543,7 @@ export default function Component() {
                                                       <div key={`one-rp-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(value ?? '')}
+                                                          {highlightNumbers(String(value ?? ''))}
                                                         </span>
                                                       </div>
                                                     ))
@@ -848,7 +1551,7 @@ export default function Component() {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(filteredData[index].backendData.TPH.one_rp_down)}
+                                                          {highlightNumbers(String(filteredData[index].backendData.TPH.one_rp_down))}
                                                         </span>
                                                       </div>
                                                     )
@@ -899,14 +1602,14 @@ export default function Component() {
                                                       <div key={`both-rp-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(value)}
+                                                          {highlightNumbers(String(value))}
                                                         </span>
                                                       </div>
                                                     ))
                                                     : (
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">{item}</span>
+                                                        <span className="text-sm text-gray-600">{highlightNumbers(item)}</span>
                                                       </div>
                                                     )
                                                   }
@@ -920,7 +1623,7 @@ export default function Component() {
                                                       <div key={`both-rp-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(value ?? '')}
+                                                          {highlightNumbers(String(value ?? ''))}
                                                         </span>
                                                       </div>
                                                     ))
@@ -928,7 +1631,7 @@ export default function Component() {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(filteredData[index].backendData.TPH.both_rp_down)}
+                                                          {highlightNumbers(String(filteredData[index].backendData.TPH.both_rp_down))}
                                                         </span>
                                                       </div>
                                                     )
@@ -979,14 +1682,14 @@ export default function Component() {
                                                       <div key={`reduced-feed-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(value)}
+                                                          {highlightNumbers(String(value))}
                                                         </span>
                                                       </div>
                                                     ))
                                                     : (
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">{item}</span>
+                                                        <span className="text-sm text-gray-600">{highlightNumbers(item)}</span>
                                                       </div>
                                                     )
                                                   }
@@ -998,7 +1701,7 @@ export default function Component() {
                                                       <div key={`reduced-feed-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(value ?? '')}
+                                                          {highlightNumbers(String(value ?? ''))}
                                                         </span>
                                                       </div>
                                                     ))
@@ -1006,7 +1709,7 @@ export default function Component() {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {String(filteredData[index].backendData.TPH["Reduced Feed Operations"])}
+                                                          {highlightNumbers(String(filteredData[index].backendData.TPH["Reduced Feed Operations"]))}
                                                         </span>
                                                       </div>
                                                     )
@@ -1092,7 +1795,7 @@ export default function Component() {
                                                   <div key={`sks-fan-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                     <span className="text-sm text-gray-600">
-                                                      {String(value ?? '')}
+                                                      {highlightNumbers(String(value ?? ''))}
                                                     </span>
                                                   </div>
                                                 ))
@@ -1143,7 +1846,7 @@ export default function Component() {
                                                   <div key={`mill-aux-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                     <span className="text-sm text-gray-600">
-                                                      {String(value ?? '')}
+                                                      {highlightNumbers(String(value ?? ''))}
                                                     </span>
                                                   </div>
                                                 ))
@@ -1194,7 +1897,7 @@ export default function Component() {
                                                   <div key={`product-transport-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                     <span className="text-sm text-gray-600">
-                                                      {String(value ?? '')}
+                                                      {highlightNumbers(String(value ?? ''))}
                                                     </span>
                                                   </div>
                                                 ))
@@ -1351,6 +2054,11 @@ export default function Component() {
                               startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
                               endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
                               title={`${popupData.section} Trend`}
+                              targetValue={(() => {
+                                // Extract target value directly from TPH section
+                                const targetValue = popupData.backendData?.TPH?.target;
+                                return targetValue ? parseFloat(targetValue) : undefined;
+                              })()}
                               events={
                                 popupData.data && Array.isArray(popupData.data) 
                                   ? popupData.data.map((item: any, index: number) => {
@@ -1396,6 +2104,17 @@ export default function Component() {
                               startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
                               endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
                               title="SKS Fan Trend"
+                              legendNames={extractSensorNames(popupData.backendData, "High_Power")}
+                              targetValue={(() => {
+                                // Extract target value from SKS_FAN section
+                                const sksFanData = popupData.backendData?.High_Power?.SKS_FAN;
+                                if (sksFanData?.Target) {
+                                  // Get the first target value (assuming single sensor for now)
+                                  const targetValues = Object.values(sksFanData.Target);
+                                  return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                                }
+                                return undefined;
+                              })()}
                             />
                           )}
                           
@@ -1407,6 +2126,16 @@ export default function Component() {
                               startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
                               endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
                               title="Mill Auxiliaries Trend"
+                              legendNames={extractSensorNames(popupData.backendData, "High_Power")}
+                              targetValue={(() => {
+                                // Extract target value from mill_auxiliaries section if available
+                                const millAuxData = popupData.backendData?.High_Power?.mill_auxiliaries;
+                                if (millAuxData?.Target) {
+                                  const targetValues = Object.values(millAuxData.Target);
+                                  return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                                }
+                                return undefined;
+                              })()}
                             />
                           )}
                           
@@ -1418,6 +2147,16 @@ export default function Component() {
                               startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
                               endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
                               title="Product Transportation Trend"
+                              legendNames={extractSensorNames(popupData.backendData, "High_Power")}
+                              targetValue={(() => {
+                                // Extract target value from product_transportation section if available
+                                const transportData = popupData.backendData?.High_Power?.product_transportation;
+                                if (transportData?.Target) {
+                                  const targetValues = Object.values(transportData.Target);
+                                  return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                                }
+                                return undefined;
+                              })()}
                             />
                           )}
                           

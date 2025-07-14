@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
+import ZoomableLineChart from './ZoomableLineChart';
+import { Component as LumaSpin } from './ui/luma-spin';
 
 interface TrendChartProps {
   deviceId: string;
@@ -15,6 +17,7 @@ interface TrendChartProps {
     color?: string;
   }>;
   legendNames?: Record<string, string>; // Add this line
+  targetValue?: number; // Add target value prop
 }
 
 interface DataPoint {
@@ -22,17 +25,28 @@ interface DataPoint {
   [key: string]: any;
 }
 
-export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events, legendNames }: TrendChartProps) {
+// Define the type for eventRanges
+interface EventRange {
+  start: string;
+  end: string;
+  color: string;
+  label: string;
+}
+
+export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events, legendNames, targetValue }: TrendChartProps) {
   const [data, setData] = useState<DataPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
-  const eventColor = '#ff6b6b'; // Single color for all events
-  const normalColor = '#8884d8'; // Color for normal data
+  const colors = ['#3263fc', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
+  const eventColor = '#ED1C24'; // Single color for all events
+  const normalColor = '#3263fc'; // Color for normal data (raw mill feed rate)
 
   // Check if this is the TPH section (contains D49 and D5 sensors)
   const isTPHSection = sensorList.includes('D49') && sensorList.includes('D5');
+  
+  // Check if this is a High Power section (has multiple sensors with names)
+  const isHighPowerSection = legendNames && Object.keys(legendNames).length > 0;
 
   // Debug: Log the parameters
   useEffect(() => {
@@ -124,9 +138,9 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <p className="text-sm text-gray-600">Loading trend data...</p>
+        <div className="text-center flex flex-col items-center">
+          <LumaSpin />
+          <p className="text-sm text-gray-600 mt-4">Loading trend data...</p>
         </div>
       </div>
     );
@@ -152,21 +166,47 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
     );
   }
 
-  // Format time for display
-  const formatTime = (timeStr: string) => {
-    const date = new Date(timeStr);
-    return date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: false 
-    });
-  };
-
-  // Preprocess data to add a 'timestamp' field for each point
+  // Process data to add a 'timestamp' field (milliseconds since epoch)
   const processedData = data.map(point => ({
     ...point,
     timestamp: new Date(point.time).getTime(),
+    target: targetValue, // Add target value to each data point
   }));
+
+  // Calculate dynamic Y-axis domain for High Power sections
+  const calculateYAxisDomain = () => {
+    if (!isHighPowerSection || processedData.length === 0) return undefined;
+    
+    let maxValue = 0;
+    
+    // Find the maximum value across all sensors
+    processedData.forEach(point => {
+      displaySensors.forEach(sensor => {
+        const value = parseFloat((point as any)[sensor] || '0');
+        if (!isNaN(value) && value > maxValue) {
+          maxValue = value;
+        }
+      });
+    });
+    
+    // Add 20% padding to the maximum value
+    const paddedMax = Math.ceil(maxValue * 1.2);
+    
+    return [0, paddedMax];
+  };
+
+  // Formatter for IST date+time from timestamp
+  const formatTimestamp = (ts: number) => {
+    const date = new Date(ts);
+    return date.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Kolkata'
+    });
+  };
 
   // Determine which sensors to display
   const displaySensors = isTPHSection ? ['Raw mill feed rate'] : sensorList;
@@ -183,7 +223,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
       const eventEnd = new Date(event.endTime).getTime();
       
       if (pointTime >= eventStart && pointTime <= eventEnd) {
-        return event.color || eventColors[i % eventColors.length];
+        return event.color || colors[i % colors.length]; // Changed from eventColors to colors
       }
     }
     
@@ -264,38 +304,42 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
     return lines;
   };
 
+  // Prepare processedData and lines for ZoomableLineChart
+  const lines: Array<{key: string, name: string, color: string}> = displaySensors.map((sensor, index) => ({
+    key: sensor,
+    name: legendNames?.[sensor] || sensor,
+    color: colors[index % colors.length],
+  }));
+
+  // Transform events to eventRanges format for ZoomableLineChart
+  const eventRanges: EventRange[] = events?.map((event, index) => ({
+    start: event.startTime,
+    end: event.endTime,
+    color: '#ED1C24', // Event color
+    label: `Event ${index + 1}`
+  })) || [];
+
+  // For High Power sections, use ZoomableLineChart with proper configuration
+  if (isHighPowerSection) {
+    return (
+      <ZoomableLineChart
+        data={processedData}
+        lines={lines}
+        title={title}
+        eventRanges={eventRanges}
+        targetValue={targetValue}
+        isHighPowerSection={true}
+      />
+    );
+  }
+
   return (
-    <div className="w-full h-80 bg-white rounded-lg border p-4">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis 
-            dataKey="timestamp"
-            tickFormatter={formatTime}
-            angle={-45}
-            textAnchor="end"
-            height={60}
-            fontSize={12}
-            type="number"
-            domain={['dataMin', 'dataMax']}
-          />
-          <Brush dataKey="timestamp" height={30} stroke="#8884d8" tickFormatter={formatTime} />
-          <YAxis fontSize={12} />
-          <Tooltip 
-            labelFormatter={formatTime}
-            formatter={(value: any, name: string) => [value, name]}
-          />
-          <Legend formatter={(value) => {
-            if (legendNames && legendNames[value]) return legendNames[value];
-            // Special case for TPH segmented lines
-            if (value === 'Raw mill feed rate_event') return legendNames?.['event'] || 'Ramp-up event';
-            if (value === 'Raw mill feed rate_normal') return legendNames?.['normal'] || 'Raw mill feed rate';
-            return value;
-          }} />
-          {renderColoredLines()}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <ZoomableLineChart
+      data={processedData}
+      lines={lines}
+      title={title}
+      eventRanges={eventRanges}
+      targetValue={targetValue}
+    />
   );
 } 
