@@ -6,6 +6,8 @@ interface DiagnosticData {
   issue: string;
   status: "High" | "Medium" | "Low";
   lastUpdated: string;
+  timestamp: string; // Raw timestamp
+  resultName: string; // Result name from backend
   details?: {
     targetSPC?: string;
     daySPC?: string;
@@ -21,15 +23,31 @@ interface DiagnosticData {
       "Reduced Feed Operations"?: any;
       rampup?: any[];
       lowfeed?: any[];
+      Device?: string;
+      target?: number;
+      sensor?: any;
+      RP1_maintance?: any[];
+      RP2_maintance?: any[];
+      [key: string]: any;
     };
     High_Power?: {
       SKS_FAN?: any;
       mill_auxiliaries?: any;
       product_transportation?: any;
+      Device?: string;
+      [key: string]: any;
     };
     idle_running?: {
       cause?: string;
     };
+    SPC?: {
+      target?: number;
+      today?: number;
+      deviation?: number;
+      Impact?: string;
+    };
+    detected_issue?: string;
+    query_time?: string[];
     [key: string]: any;
   };
 }
@@ -89,6 +107,8 @@ export function useDiagnosticData(timeRange?: TimeRange) {
             issue: detectedIssue,
             status: impactValue,
             lastUpdated: formattedDate,
+            timestamp: result.invocationTime, // Raw timestamp
+            resultName: result.resultName || "Raw Mill", // Result name
             details: {
               ...details,
               impact: impactValue
