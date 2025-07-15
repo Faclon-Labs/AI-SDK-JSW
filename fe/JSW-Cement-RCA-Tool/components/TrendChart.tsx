@@ -103,10 +103,12 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
               const d49Value = parseFloat(point.D49 || '0');
               const d5Value = parseFloat(point.D5 || '0');
               const calculatedValue = d49Value - d5Value;
+              // Cap negative values at 0
+              const finalValue = Math.max(0, calculatedValue);
               
               return {
                 ...point,
-                'Raw mill feed rate': calculatedValue
+                'Raw mill feed rate': finalValue
               };
             });
           }
@@ -281,7 +283,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
       ));
     }
     // For TPH sections with events, create two segments per sensor, both using the full data array
-    const lines = [];
+    const lines: React.ReactElement[] = [];
     displaySensors.forEach((sensor, sensorIndex) => {
       const segments = getSegmentedDataArrays(processedData, events, sensor);
       segments.forEach((seg, segIdx) => {
