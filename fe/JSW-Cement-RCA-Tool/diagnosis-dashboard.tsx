@@ -64,6 +64,38 @@ const formatTime = (value: any): string => {
   }
 };
 
+// Function to convert UTC time to IST (UTC+5:30)
+const formatTimeIST = (value: any): string => {
+  if (value === null || value === undefined || value === "N/A") {
+    return "N/A";
+  }
+  
+  try {
+    const date = new Date(value);
+    if (isNaN(date.getTime())) {
+      return String(value);
+    }
+    
+    // Use toLocaleString with Asia/Kolkata timezone for accurate IST conversion
+    const istDateString = date.toLocaleString('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    
+    // Format as YYYY-MM-DD HH:mm:ss (IST time without timezone indicator)
+    const [datePart, timePart] = istDateString.split(', ');
+    return `${datePart} ${timePart}`;
+  } catch (error) {
+    return String(value);
+  }
+};
+
 // Function to highlight numbers in text
 const highlightNumbers = (text: any) => {
   if (text === null || text === undefined) return "";
@@ -137,8 +169,8 @@ export default function Component() {
     backendData: null
   })
 
-  // Format range for display
-  const displayRange = `${selectedRange.startDate} ${selectedRange.startTime} - ${selectedRange.endDate} ${selectedRange.endTime}`;
+  // Format range for display (dates only, no times)
+  const displayRange = `${selectedRange.startDate} - ${selectedRange.endDate}`;
 
   // Function to get preset name based on current selection
   const getPresetName = (range: TimeRange): string => {
@@ -710,7 +742,7 @@ export default function Component() {
       console.log('PDF report generated successfully:', filename);
     } catch (error) {
       console.error('Error generating PDF report:', error);
-      alert(`Error generating PDF report: ${error.message}. Please try again.`);
+      alert(`Error generating PDF report: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
     }
   };
 
@@ -2211,8 +2243,8 @@ export default function Component() {
                         <TableBody>
                           {maintenancePopup.rp1.map((item, i) => (
                             <TableRow key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
-                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Start Date Time"]}</TableCell>
-                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["End Date Time"]}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["Start Date Time"])}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["End Date Time"])}</TableCell>
                               <TableCell
                                 className="px-4 py-3 align-top border-b max-w-[180px] truncate cursor-pointer"
                                 title={item["Event Details"]}
@@ -2259,8 +2291,8 @@ export default function Component() {
                         <TableBody>
                           {maintenancePopup.rp2.map((item, i) => (
                             <TableRow key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
-                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Start Date Time"]}</TableCell>
-                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["End Date Time"]}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["Start Date Time"])}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["End Date Time"])}</TableCell>
                               <TableCell
                                 className="px-4 py-3 align-top border-b max-w-[180px] truncate cursor-pointer"
                                 title={item["Event Details"]}

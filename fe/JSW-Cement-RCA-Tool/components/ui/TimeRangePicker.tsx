@@ -176,7 +176,7 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
     if (preset !== 'Custom') {
       const newRange = getTimeRangeFromPreset(preset);
       setRange(newRange);
-      onChange(newRange);
+      // Don't call onChange immediately - wait for Apply button
       // Sync calendar
       setCalendarRange({
         from: newRange.startDate ? new Date(newRange.startDate) : undefined,
@@ -187,9 +187,17 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
 
   const handleInputChange = (field: keyof TimeRange, val: string) => {
     // Always expect YYYY-MM-DD from input
-    const newRange = { ...range, [field]: val };
+    let newRange = { ...range, [field]: val };
+    
+    // Automatically set default times when dates are changed
+    if (field === 'startDate') {
+      newRange.startTime = '00:00';
+    } else if (field === 'endDate') {
+      newRange.endTime = '23:59';
+    }
+    
     setRange(newRange);
-    onChange(newRange);
+    // Don't call onChange immediately - wait for Apply button
     // Sync calendar if start/end date changes
     if (field === 'startDate' || field === 'endDate') {
       setCalendarRange({
@@ -208,10 +216,22 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
       if (selected.to) {
         endDate = formatDateYMD(selected.to);
       }
-      const newRange = { ...range, startDate, endDate };
+      const newRange = { 
+        ...range, 
+        startDate, 
+        endDate,
+        startTime: '00:00',  // Auto-set start time to 00:00
+        endTime: '23:59'     // Auto-set end time to 23:59
+      };
       setRange(newRange);
-      onChange(newRange);
+      // Don't call onChange immediately - wait for Apply button
     }
+  };
+
+  // Apply button handler - triggers data loading
+  const handleApply = () => {
+    onChange(range); // Trigger data loading with current range
+    onApply(); // Call the original onApply function
   };
 
   return (
@@ -233,22 +253,14 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
       </div>
       {/* Right: Date/Time & Calendar */}
       <div className="flex-1 p-2 flex flex-col gap-2 w-full max-w-[320px]">
-        <div className="grid grid-cols-2 gap-1 mb-1">
+        <div className="grid grid-cols-2 gap-2 mb-1">
           <div>
             <label className="block text-xs font-medium mb-0.5">Start Date *</label>
             <Input type="date" value={range.startDate} onChange={e => handleInputChange('startDate', e.target.value)} className="text-xs h-8" />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-0.5">Start Time *</label>
-            <Input type="time" value={range.startTime} onChange={e => handleInputChange('startTime', e.target.value)} className="text-xs h-8 w-24" />
-          </div>
-          <div>
             <label className="block text-xs font-medium mb-0.5">End Date *</label>
             <Input type="date" value={range.endDate} onChange={e => handleInputChange('endDate', e.target.value)} className="text-xs h-8" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-0.5">End Time *</label>
-            <Input type="time" value={range.endTime} onChange={e => handleInputChange('endTime', e.target.value)} className="text-xs h-8 w-24" />
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center w-full">
@@ -261,7 +273,7 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
         </div>
         <div className="flex justify-end gap-2 mt-2 w-full">
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button variant="default" onClick={onApply} className="w-full max-w-[120px]">Apply</Button>
+          <Button variant="default" onClick={handleApply} className="w-full max-w-[120px]">Apply</Button>
         </div>
       </div>
     </div>
