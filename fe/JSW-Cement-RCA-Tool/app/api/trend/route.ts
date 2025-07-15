@@ -4,8 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5', // Hardcoded user ID
   dataUrl: 'datads-ext.iosense.io', // Correct data URL
-  onPrem: false,
-  tz: 'IST'  // Changed from UTC to IST for Indian Standard Time output
+  onPrem: false
+  // Removed tz parameter - times are passed as-is in IST format
 };
 
 export async function POST(request: NextRequest) {
@@ -27,12 +27,8 @@ export async function POST(request: NextRequest) {
       endTime
     });
 
-    // Convert time strings to timestamps
-    const startTimestamp = new Date(startTime).getTime();
-    const endTimestamp = new Date(endTime).getTime();
-
-    // Fetch real data from backend
-    const realData = await fetchRealData(deviceId, sensorList, startTimestamp, endTimestamp);
+    // Pass time strings directly (already in IST format)
+    const realData = await fetchRealData(deviceId, sensorList, startTime, endTime);
     
     return NextResponse.json({
       success: true,
@@ -48,7 +44,7 @@ export async function POST(request: NextRequest) {
 }
 
 // Real data fetcher from backend
-async function fetchRealData(deviceId: string, sensorList: string[], startTime: number, endTime: number) {
+async function fetchRealData(deviceId: string, sensorList: string[], startTime: string, endTime: string) {
   try {
     // Import the DataAccess class dynamically to avoid module resolution issues
     const { DataAccess } = await import('../../../../../connector-userid-ts/dist/index.js');
@@ -58,23 +54,23 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
       userId: BACKEND_CONFIG.userId,
       dataUrl: BACKEND_CONFIG.dataUrl,
       dsUrl: BACKEND_CONFIG.dataUrl,
-      onPrem: BACKEND_CONFIG.onPrem,
-      tz: BACKEND_CONFIG.tz
+      onPrem: BACKEND_CONFIG.onPrem
+      // No tz parameter - times are passed as-is in IST format
     });
 
     console.log('Calling real backend dataQuery with:', {
       deviceId,
       sensorList,
-      startTime: new Date(startTime).toISOString(),
-      endTime: new Date(endTime).toISOString()
+      startTime: startTime, // Pass IST time string directly as-is
+      endTime: endTime
     });
 
     // Call the real backend dataQuery function
     const result = await dataAccess.dataQuery({
       deviceId,
       sensorList,
-      startTime: new Date(startTime).toISOString(),
-      endTime: new Date(endTime).toISOString()
+      startTime: startTime, // Pass IST time string directly as-is
+      endTime: endTime
     });
 
     console.log('Real backend response:', result);
@@ -93,12 +89,13 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
     
     // Fallback to mock data if real data fails
     console.log('Falling back to mock data due to error');
-    return generateMockData(deviceId, sensorList, new Date(startTime).toISOString(), new Date(endTime).toISOString());
+    return generateMockData(deviceId, sensorList, startTime, endTime);
   }
 }
 
 // Mock data generator (fallback)
 function generateMockData(deviceId: string, sensorList: string[], startTime: string, endTime: string) {
+  // Parse IST time strings directly
   const start = new Date(startTime).getTime();
   const end = new Date(endTime).getTime();
   const interval = (end - start) / 100;

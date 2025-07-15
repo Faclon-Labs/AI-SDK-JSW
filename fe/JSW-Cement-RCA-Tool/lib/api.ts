@@ -5,8 +5,8 @@ import { BruceHandler } from '../../../connector-userid-ts/dist/index.js';
 const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5', // Hardcoded user ID
   dataUrl: 'datads-ext.iosense.io', // Correct data URL
-  onPrem: false,
-  tz: 'IST'  // Changed from UTC to IST for Indian Standard Time output
+  onPrem: false
+  // Removed tz parameter - times are passed as-is in IST format
 };
 
 // Initialize the BruceHandler
