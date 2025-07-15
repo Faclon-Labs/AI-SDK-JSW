@@ -5,7 +5,7 @@ const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5', // Hardcoded user ID
   dataUrl: 'datads-ext.iosense.io', // Correct data URL
   onPrem: false,
-  tz: 'UTC'
+  tz: 'IST'  // Changed from UTC to IST for Indian Standard Time output
 };
 
 export async function POST(request: NextRequest) {

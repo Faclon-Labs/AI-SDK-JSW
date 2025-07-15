@@ -113,17 +113,7 @@ const highlightNumbers = (text: any) => {
   });
 };
 
-// Helper to convert IST date+time to UTC ISO string
-function toUTCISOStringFromIST(dateStr: string, timeStr: string) {
-  // dateStr: 'YYYY-MM-DD', timeStr: 'HH:mm'
-  const [year, month, day] = dateStr.split('-').map(Number);
-  const [hour, minute] = timeStr.split(':').map(Number);
-  // Create a Date object in IST
-  const istDate = new Date(Date.UTC(year, month - 1, day, hour - 5, minute - 30));
-  // Add 5 hours 30 minutes to get IST
-  istDate.setHours(istDate.getHours() + 5, istDate.getMinutes() + 30);
-  return istDate.toISOString();
-}
+// Note: UTC to IST conversion removed since backend now handles IST timezone directly
 
 export default function Component() {
   // Add state for time picker modal and range
