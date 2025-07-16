@@ -5,8 +5,8 @@ import { BruceHandler } from '../../../connector-userid-ts/dist/index.js';
 const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5', // Hardcoded user ID
   dataUrl: 'datads-ext.iosense.io', // Correct data URL
-  onPrem: false
-  // Removed tz parameter - times are passed as-is in IST format
+  onPrem: false,
+  tz: 'Asia/Kolkata' // Use Asia/Kolkata timezone
 };
 
 // Initialize the BruceHandler
@@ -40,7 +40,7 @@ export async function fetchAllInsightResults() {
 export async function fetchInsightResultsByTimeRange(timeRange: TimeRange) {
   const insightId = 'INS_015ce0dcf91c';
   
-  // Pass IST times as-is (no timezone conversion needed since tz=IST in backend config)
+  // Pass IST times as-is (query_time values are already in correct format)
   const startDateTime = `${timeRange.startDate}T${timeRange.startTime}:00.000`;
   const endDateTime = `${timeRange.endDate}T${timeRange.endTime}:59.999`;
   

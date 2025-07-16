@@ -4,8 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5', // Hardcoded user ID
   dataUrl: 'datads-ext.iosense.io', // Correct data URL
-  onPrem: false
-  // Removed tz parameter - times are passed as-is in IST format
+  onPrem: false,
+  tz: 'Asia/Kolkata' // Use Asia/Kolkata timezone with string times passed directly
 };
 
 export async function POST(request: NextRequest) {
@@ -27,7 +27,8 @@ export async function POST(request: NextRequest) {
       endTime
     });
 
-    // Pass time strings directly (already in IST format)
+    // Pass times directly as strings to avoid timezone conversion issues
+    // The query_time values are already in the correct IST format
     const realData = await fetchRealData(deviceId, sensorList, startTime, endTime);
     
     return NextResponse.json({
@@ -54,23 +55,37 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
       userId: BACKEND_CONFIG.userId,
       dataUrl: BACKEND_CONFIG.dataUrl,
       dsUrl: BACKEND_CONFIG.dataUrl,
-      onPrem: BACKEND_CONFIG.onPrem
-      // No tz parameter - times are passed as-is in IST format
+      onPrem: BACKEND_CONFIG.onPrem,
+      tz: BACKEND_CONFIG.tz
     });
+
+    // Convert IST string times to Unix timestamps properly
+    // The query_time values are in IST format (YYYY-MM-DD HH:mm:ss)
+    // We need to treat them as IST timezone
+    function convertISTStringToUnix(timeStr: string): number {
+      // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss+05:30" (ISO format with IST timezone)
+      const isoTimeStr = timeStr.replace(' ', 'T') + '+05:30';
+      const istTime = new Date(isoTimeStr);
+      return istTime.getTime();
+    }
+    
+    const startTimeUnix = convertISTStringToUnix(startTime);
+    const endTimeUnix = convertISTStringToUnix(endTime);
 
     console.log('Calling real backend dataQuery with:', {
       deviceId,
       sensorList,
-      startTime: startTime, // Pass IST time string directly as-is
-      endTime: endTime
+      startTime: startTime + ' (converted to Unix: ' + startTimeUnix + ')',
+      endTime: endTime + ' (converted to Unix: ' + endTimeUnix + ')'
     });
 
-    // Call the real backend dataQuery function
+    // Call the real backend dataQuery function with Unix timestamps
+    // This avoids timezone conversion issues by passing already-converted timestamps
     const result = await dataAccess.dataQuery({
       deviceId,
       sensorList,
-      startTime: startTime, // Pass IST time string directly as-is
-      endTime: endTime
+      startTime: startTimeUnix,  // Pass Unix timestamp
+      endTime: endTimeUnix       // Pass Unix timestamp
     });
 
     console.log('Real backend response:', result);
@@ -95,9 +110,14 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
 
 // Mock data generator (fallback)
 function generateMockData(deviceId: string, sensorList: string[], startTime: string, endTime: string) {
-  // Parse IST time strings directly
-  const start = new Date(startTime).getTime();
-  const end = new Date(endTime).getTime();
+  // Convert IST string times to Unix timestamps for mock data generation
+  function convertISTStringToUnix(timeStr: string): number {
+    const isoTimeStr = timeStr.replace(' ', 'T') + '+05:30';
+    return new Date(isoTimeStr).getTime();
+  }
+  
+  const start = convertISTStringToUnix(startTime);
+  const end = convertISTStringToUnix(endTime);
   const interval = (end - start) / 100;
   
   const data = [];

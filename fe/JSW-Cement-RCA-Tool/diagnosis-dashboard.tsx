@@ -1383,10 +1383,7 @@ export default function Component() {
                                   <div className="text-xl font-bold text-gray-900">
                                     {expandedData[index as keyof typeof expandedData].targetSPC}
                                   </div>
-                                  <div className="flex items-center mt-1">
-                                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1"></div>
-                                    <span className="text-xs text-green-600 font-medium">Target</span>
-                                  </div>
+                                  {/* Removed the green dot and 'Target' label */}
                                 </CardContent>
                               </Card>
 
@@ -1425,35 +1422,20 @@ export default function Component() {
                                   <CardTitle className="text-xs font-medium text-gray-600">Impact</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0 px-3 pb-2">
-                                  <div className="text-xl font-bold text-gray-900">
+                                  <div 
+                                    className={`text-xl font-bold ${
+                                      item.status.toLowerCase().includes("high") ||
+                                      item.status.toLowerCase().includes("critical") ||
+                                      item.status.toLowerCase().includes("severe")
+                                        ? "text-red-600"
+                                        : item.status.toLowerCase().includes("medium") || item.status.toLowerCase().includes("moderate")
+                                          ? "text-yellow-600"
+                                          : "text-green-600"
+                                    }`}
+                                  >
                                     {item.status}
                                   </div>
-                                  <div className="flex items-center mt-1">
-                                    <div
-                                      className={`w-1.5 h-1.5 rounded-full mr-1 ${
-                                        item.status.toLowerCase().includes("high") ||
-                                        item.status.toLowerCase().includes("critical") ||
-                                        item.status.toLowerCase().includes("severe")
-                                          ? "bg-red-500"
-                                          : item.status.toLowerCase().includes("medium") || item.status.toLowerCase().includes("moderate")
-                                            ? "bg-yellow-500"
-                                            : "bg-green-500"
-                                      }`}
-                                    ></div>
-                                    <span
-                                      className={`text-xs font-medium ${
-                                        item.status.toLowerCase().includes("high") ||
-                                        item.status.toLowerCase().includes("critical") ||
-                                        item.status.toLowerCase().includes("severe")
-                                          ? "text-red-600"
-                                          : item.status.toLowerCase().includes("medium") || item.status.toLowerCase().includes("moderate")
-                                            ? "text-yellow-600"
-                                            : "text-green-600"
-                                      }`}
-                                    >
-                                      {item.status} Impact
-                                    </span>
-                                  </div>
+                                  {/* Removed the dot and "Impact" label */}
                                 </CardContent>
                               </Card>
                             </div>
@@ -1509,7 +1491,7 @@ export default function Component() {
                                       {filteredData[index]?.backendData?.TPH?.one_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-semibold text-gray-900">One RP Down</h4>
+                                            <h4 className="font-semibold text-gray-900">Single RP Down</h4>
                                             <button
                                               onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.one_rp_down?.rampup, "One RP Down", filteredData[index]?.backendData)}
                                               className={`p-1 rounded transition-colors ${
@@ -1591,7 +1573,7 @@ export default function Component() {
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900">Both RP Down</h4>
                                             <button
-                                              onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.both_rp_down, "Both RP Down", filteredData[index]?.backendData)}
+                                              onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.both_rp_down?.rampup, "Both RP Down", filteredData[index]?.backendData)}
                                               className={`p-1 rounded transition-colors ${
                                                 hasTrendData(filteredData[index].backendData, "Both RP Down")
                                                   ? "hover:bg-gray-200 text-blue-600"
@@ -1970,226 +1952,257 @@ export default function Component() {
 
             {/* Content */}
             <div className="p-4">
-              <Tabs defaultValue="table" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="table">Table Data</TabsTrigger>
-                  <TabsTrigger value="trend">Trend Analysis</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="table" className="mt-4">
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="font-semibold text-gray-900 mb-3">Data Table</h4>
-                    {popupData.data && Array.isArray(popupData.data) ? (
-                      <div className="overflow-x-auto max-h-[75vh]">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              {popupData.section === "Reduced Feed Operations" ? (
-                                <>
-                                  <TableHead className="w-[150px]">Start Time</TableHead>
-                                  <TableHead className="w-[150px]">End Time</TableHead>
-                                  <TableHead className="w-[120px]">Duration (min)</TableHead>
-                                  <TableHead className="w-[120px]">Pumps Running</TableHead>
-                                  <TableHead className="w-[120px]">Average TPH</TableHead>
-                                  <TableHead className="w-[120px]">Minimum TPH</TableHead>
-                                  <TableHead className="w-[120px]">Maximum TPH</TableHead>
-                                </>
-                              ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && popupData.data.length > 0 && popupData.data[0].scenario ? (
-                                <>
-                                  <TableHead className="w-[200px]">Scenario</TableHead>
-                                  <TableHead className="w-[150px]">Ramp Start</TableHead>
-                                  <TableHead className="w-[150px]">Ramp End</TableHead>
-                                  <TableHead className="w-[150px]">Duration (min)</TableHead>
-                                  <TableHead className="w-[120px]">Final TPH</TableHead>
-                                  <TableHead className="w-[200px]">Stability Reason</TableHead>
-                                </>
-                              ) : (
-                                <>
-                                  <TableHead className="w-[200px]">Scenario</TableHead>
-                                  <TableHead className="w-[150px]">Ramp Start</TableHead>
-                                  <TableHead className="w-[150px]">Ramp End</TableHead>
-                                  <TableHead className="w-[150px]">Duration (min)</TableHead>
-                                  <TableHead className="w-[120px]">Final TPH</TableHead>
-                                </>
-                              )}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {popupData.data.map((item: any, i: number) => (
-                              <TableRow key={i}>
+              {/* Check if this is a High Power section */}
+              {["SKS Fan", "Mill Auxiliaries", "Product Transportation"].includes(popupData.section) ? (
+                // For High Power sections, show only trend analysis
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Trend Analysis</h4>
+                  <div className="bg-white rounded p-4 border">
+                    <p className="text-gray-600 mb-4">
+                      Real-time trend analysis for {popupData.section.toLowerCase()} data.
+                      The chart shows sensor values over time for the selected period.
+                    </p>
+                    
+                    {/* Show trend chart only if data and device/sensor info is available */}
+                    {popupData.data && (
+                      <div className="space-y-4">
+                        {/* SKS Fan Trend Chart */}
+                        {popupData.section === "SKS Fan" && shouldShowTrend(popupData.backendData, "High_Power") && (
+                          <TrendChart
+                            deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
+                            sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["sks_fan_sensor_001", "sks_fan_sensor_002"]}
+                            startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                            endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                            title="SKS Fan Trend"
+                            legendNames={extractSensorNames(popupData.backendData, "High_Power")}
+                            targetValue={(() => {
+                              // Extract target value from SKS_FAN section
+                              const sksFanData = popupData.backendData?.High_Power?.SKS_FAN;
+                              if (sksFanData?.Target) {
+                                // Get the first target value (assuming single sensor for now)
+                                const targetValues = Object.values(sksFanData.Target);
+                                return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                              }
+                              return undefined;
+                            })()}
+                          />
+                        )}
+                        
+                        {/* Mill Auxiliaries Trend Chart */}
+                        {popupData.section === "Mill Auxiliaries" && shouldShowTrend(popupData.backendData, "High_Power") && (
+                          <TrendChart
+                            deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
+                            sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["mill_aux_sensor_001", "mill_aux_sensor_002"]}
+                            startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                            endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                            title="Mill Auxiliaries Trend"
+                            legendNames={extractSensorNames(popupData.backendData, "High_Power")}
+                            targetValue={(() => {
+                              // Extract target value from mill_auxiliaries section if available
+                              const millAuxData = popupData.backendData?.High_Power?.mill_auxiliaries;
+                              if (millAuxData?.Target) {
+                                const targetValues = Object.values(millAuxData.Target);
+                                return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                              }
+                              return undefined;
+                            })()}
+                          />
+                        )}
+                        
+                        {/* Product Transportation Trend Chart */}
+                        {popupData.section === "Product Transportation" && shouldShowTrend(popupData.backendData, "High_Power") && (
+                          <TrendChart
+                            deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
+                            sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["transport_sensor_001", "transport_sensor_002"]}
+                            startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                            endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                            title="Product Transportation Trend"
+                            legendNames={extractSensorNames(popupData.backendData, "High_Power")}
+                            targetValue={(() => {
+                              // Extract target value from product_transportation section if available
+                              const transportData = popupData.backendData?.High_Power?.product_transportation;
+                              if (transportData?.Target) {
+                                const targetValues = Object.values(transportData.Target);
+                                return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                              }
+                              return undefined;
+                            })()}
+                          />
+                        )}
+                        
+                        {/* Show message if no trend data available */}
+                        
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                // For other sections (TPH), show both table and trend tabs
+                <Tabs defaultValue="table" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="table">Table Data</TabsTrigger>
+                    <TabsTrigger value="trend">Trend Analysis</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="table" className="mt-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3">Data Table</h4>
+                      {popupData.data && Array.isArray(popupData.data) ? (
+                        <div className="overflow-x-auto max-h-[75vh]">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
                                 {popupData.section === "Reduced Feed Operations" ? (
                                   <>
-                                    <TableCell>{formatTime(item.period_start)}</TableCell>
-                                    <TableCell>{formatTime(item.period_end)}</TableCell>
-                                    <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
-                                    <TableCell>{item.pumps_running === 1 ? "Single" : item.pumps_running === 2 ? "Both" : item.pumps_running || "N/A"}</TableCell>
-                                    <TableCell>{formatNumber(item.avg_tph)}</TableCell>
-                                    <TableCell>{formatNumber(item.min_tph)}</TableCell>
-                                    <TableCell>{formatNumber(item.max_tph)}</TableCell>
+                                    <TableHead className="w-[150px]">Start Time</TableHead>
+                                    <TableHead className="w-[150px]">End Time</TableHead>
+                                    <TableHead className="w-[120px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[120px]">RPs Running</TableHead>
+                                    <TableHead className="w-[120px]">Average TPH</TableHead>
+                                    <TableHead className="w-[120px]">Minimum TPH</TableHead>
+                                    <TableHead className="w-[120px]">Maximum TPH</TableHead>
                                   </>
-                                ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && item.scenario ? (
+                                ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && popupData.data.length > 0 && popupData.data[0].scenario ? (
                                   <>
-                                    <TableCell className="font-medium">{item.scenario || `Event ${i + 1}`}</TableCell>
-                                    <TableCell>{formatTime(item.ramp_start)}</TableCell>
-                                    <TableCell>{formatTime(item.ramp_end)}</TableCell>
-                                    <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
-                                    <TableCell>{formatNumber(item.final_tph)}</TableCell>
-                                    <TableCell>{item.stability_reason || ""}</TableCell>
+                                    <TableHead className="w-[200px]">Scenario</TableHead>
+                                    <TableHead className="w-[150px]">Ramp Start</TableHead>
+                                    <TableHead className="w-[150px]">Ramp End</TableHead>
+                                    <TableHead className="w-[150px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[200px]">Stability Reason</TableHead>
                                   </>
                                 ) : (
                                   <>
-                                    <TableCell className="font-medium">{item.scenario || `Event ${i + 1}`}</TableCell>
-                                    <TableCell>{formatTime(item.ramp_start) !== 'N/A' && !isNaN(Date.parse(item.ramp_start)) ? formatTime(item.ramp_start) : (item.start_time ? formatTime(item.start_time) : (item.period_start ? formatTime(item.period_start) : 'N/A'))}</TableCell>
-                                    <TableCell>{formatTime(item.ramp_end) !== 'N/A' && !isNaN(Date.parse(item.ramp_end)) ? formatTime(item.ramp_end) : (item.end_time ? formatTime(item.end_time) : (item.period_end ? formatTime(item.period_end) : 'N/A'))}</TableCell>
-                                    <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
-                                    <TableCell>{formatNumber(item.final_tph)}</TableCell>
+                                    <TableHead className="w-[200px]">Scenario</TableHead>
+                                    <TableHead className="w-[150px]">Ramp Start</TableHead>
+                                    <TableHead className="w-[150px]">Ramp End</TableHead>
+                                    <TableHead className="w-[150px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[120px]">Final TPH</TableHead>
                                   </>
                                 )}
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    ) : (
-                      <p className="text-gray-500">No table data available</p>
-                    )}
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="trend" className="mt-4">
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="font-semibold text-gray-900 mb-3">Trend Analysis</h4>
-                    <div className="bg-white rounded p-4 border">
-                      <p className="text-gray-600 mb-4">
-                        Real-time trend analysis for {popupData.section.toLowerCase()} data.
-                        The chart shows sensor values over time for the selected period.
-                      </p>
-                      
-                      {/* Show trend chart only if data and device/sensor info is available */}
-                      {popupData.data && (
-                        <div className="space-y-4">
-                          {/* TPH Trend Chart for all TPH subsections */}
-                          {["Reduced Feed Operations", "One RP Down", "Both RP Down"].includes(popupData.section) && popupData.backendData?.TPH?.sensor && popupData.backendData?.TPH?.Device && (
-                            <TrendChart
-                              deviceId={popupData.backendData.TPH.Device}
-                              sensorList={Object.keys(popupData.backendData.TPH.sensor)}
-                              startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
-                              endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
-                              title={`${popupData.section} Trend`}
-                              targetValue={(() => {
-                                // Extract target value directly from TPH section
-                                const targetValue = popupData.backendData?.TPH?.target;
-                                return targetValue ? parseFloat(targetValue) : undefined;
-                              })()}
-                              events={
-                                popupData.data && Array.isArray(popupData.data) 
-                                  ? popupData.data.map((item: any, index: number) => {
-                                      let startTime, endTime;
-                                      
-                                      if (popupData.section === "Reduced Feed Operations") {
-                                        startTime = item.period_start || item.start_time;
-                                        endTime = item.period_end || item.end_time;
-                                      } else if (popupData.section.includes("RP Down")) {
-                                        startTime = item.ramp_start || item.start_time;
-                                        endTime = item.ramp_end || item.end_time;
-                                      }
-                                      
-                                      return {
-                                        startTime,
-                                        endTime,
-                                        color: undefined // Will use default color from TrendChart
-                                      };
-                                    }).filter((event: any) => event.startTime && event.endTime)
-                                  : undefined
-                              }
-                              legendNames={
-                                popupData.section === "One RP Down" || popupData.section === "Both RP Down"
-                                  ? {
-                                      normal: "Raw mill feed rate",
-                                      event: "Ramp-up event"
-                                    }
-                                  : popupData.section === "Reduced Feed Operations"
-                                    ? {
-                                        normal: "Raw mill feed rate",
-                                        event: "Low feed event"
-                                      }
-                                  : undefined
-                              }
-                            />
-                          )}
-                          
-                          {/* SKS Fan Trend Chart */}
-                          {popupData.section === "SKS Fan" && shouldShowTrend(popupData.backendData, "High_Power") && (
-                            <TrendChart
-                              deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
-                              sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["sks_fan_sensor_001", "sks_fan_sensor_002"]}
-                              startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
-                              endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
-                              title="SKS Fan Trend"
-                              legendNames={extractSensorNames(popupData.backendData, "High_Power")}
-                              targetValue={(() => {
-                                // Extract target value from SKS_FAN section
-                                const sksFanData = popupData.backendData?.High_Power?.SKS_FAN;
-                                if (sksFanData?.Target) {
-                                  // Get the first target value (assuming single sensor for now)
-                                  const targetValues = Object.values(sksFanData.Target);
-                                  return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
-                                }
-                                return undefined;
-                              })()}
-                            />
-                          )}
-                          
-                          {/* Mill Auxiliaries Trend Chart */}
-                          {popupData.section === "Mill Auxiliaries" && shouldShowTrend(popupData.backendData, "High_Power") && (
-                            <TrendChart
-                              deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
-                              sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["mill_aux_sensor_001", "mill_aux_sensor_002"]}
-                              startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
-                              endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
-                              title="Mill Auxiliaries Trend"
-                              legendNames={extractSensorNames(popupData.backendData, "High_Power")}
-                              targetValue={(() => {
-                                // Extract target value from mill_auxiliaries section if available
-                                const millAuxData = popupData.backendData?.High_Power?.mill_auxiliaries;
-                                if (millAuxData?.Target) {
-                                  const targetValues = Object.values(millAuxData.Target);
-                                  return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
-                                }
-                                return undefined;
-                              })()}
-                            />
-                          )}
-                          
-                          {/* Product Transportation Trend Chart */}
-                          {popupData.section === "Product Transportation" && shouldShowTrend(popupData.backendData, "High_Power") && (
-                            <TrendChart
-                              deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
-                              sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["transport_sensor_001", "transport_sensor_002"]}
-                              startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
-                              endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
-                              title="Product Transportation Trend"
-                              legendNames={extractSensorNames(popupData.backendData, "High_Power")}
-                              targetValue={(() => {
-                                // Extract target value from product_transportation section if available
-                                const transportData = popupData.backendData?.High_Power?.product_transportation;
-                                if (transportData?.Target) {
-                                  const targetValues = Object.values(transportData.Target);
-                                  return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
-                                }
-                                return undefined;
-                              })()}
-                            />
-                          )}
-                          
-                          {/* Show message if no trend data available */}
-                          
+                            </TableHeader>
+                            <TableBody>
+                              {popupData.data.map((item: any, i: number) => (
+                                <TableRow key={i}>
+                                  {popupData.section === "Reduced Feed Operations" ? (
+                                    <>
+                                      <TableCell>{formatTime(item.period_start)}</TableCell>
+                                      <TableCell>{formatTime(item.period_end)}</TableCell>
+                                      <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
+                                      <TableCell>{item.pumps_running === 1 ? "Single" : item.pumps_running === 2 ? "Both" : item.pumps_running || "N/A"}</TableCell>
+                                      <TableCell>{formatNumber(item.avg_tph)}</TableCell>
+                                      <TableCell>{formatNumber(item.min_tph)}</TableCell>
+                                      <TableCell>{formatNumber(item.max_tph)}</TableCell>
+                                    </>
+                                  ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && item.scenario ? (
+                                    <>
+                                      <TableCell className="font-medium">{item.scenario || `Event ${i + 1}`}</TableCell>
+                                      <TableCell>{formatTime(item.ramp_start)}</TableCell>
+                                      <TableCell>{formatTime(item.ramp_end)}</TableCell>
+                                      <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
+                                      <TableCell>{item.stability_reason || ""}</TableCell>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <TableCell className="font-medium">{item.scenario || `Event ${i + 1}`}</TableCell>
+                                      <TableCell>{formatTime(item.ramp_start) !== 'N/A' && !isNaN(Date.parse(item.ramp_start)) ? formatTime(item.ramp_start) : (item.start_time ? formatTime(item.start_time) : (item.period_start ? formatTime(item.period_start) : 'N/A'))}</TableCell>
+                                      <TableCell>{formatTime(item.ramp_end) !== 'N/A' && !isNaN(Date.parse(item.ramp_end)) ? formatTime(item.ramp_end) : (item.end_time ? formatTime(item.end_time) : (item.period_end ? formatTime(item.period_end) : 'N/A'))}</TableCell>
+                                      <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
+                                      <TableCell>{formatNumber(item.final_tph)}</TableCell>
+                                    </>
+                                  )}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
                         </div>
+                      ) : (
+                        <p className="text-gray-500">No table data available</p>
                       )}
                     </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
+                  </TabsContent>
+                  
+                  <TabsContent value="trend" className="mt-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3">Trend Analysis</h4>
+                      <div className="bg-white rounded p-4 border">
+                        <p className="text-gray-600 mb-4">
+                          Real-time trend analysis for {popupData.section.toLowerCase()} data.
+                          The chart shows sensor values over time for the selected period.
+                        </p>
+                        
+                        {/* Show trend chart only if data and device/sensor info is available */}
+                        {popupData.data && (
+                          <div className="space-y-4">
+                            {/* TPH Trend Chart for all TPH subsections */}
+                            {["Reduced Feed Operations", "One RP Down", "Both RP Down"].includes(popupData.section) && popupData.backendData?.TPH?.sensor && popupData.backendData?.TPH?.Device && (
+                              <TrendChart
+                                deviceId={popupData.backendData.TPH.Device}
+                                sensorList={Object.keys(popupData.backendData.TPH.sensor)}
+                                startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                                endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                                title={`${popupData.section} Trend`}
+                                targetValue={(() => {
+                                  // Extract target value directly from TPH section
+                                  const targetValue = popupData.backendData?.TPH?.target;
+                                  return targetValue ? parseFloat(targetValue) : undefined;
+                                })()}
+                                events={
+                                  popupData.data && Array.isArray(popupData.data) 
+                                    ? popupData.data.map((item: any, index: number) => {
+                                        let startTime, endTime;
+                                        
+                                        if (popupData.section === "Reduced Feed Operations") {
+                                          startTime = item.period_start || item.start_time;
+                                          endTime = item.period_end || item.end_time;
+                                        } else if (popupData.section.includes("RP Down")) {
+                                          startTime = item.ramp_start || item.start_time;
+                                          endTime = item.ramp_end || item.end_time;
+                                        }
+                                        
+                                        // For Single RP Down, color based on scenario
+                                        let eventColor = undefined;
+                                        if (popupData.section === "One RP Down" && item.scenario) {
+                                          if (item.scenario.includes("RP1")) {
+                                            eventColor = "#FF6B6B"; // Red for RP1
+                                          } else if (item.scenario.includes("RP2")) {
+                                            eventColor = "#4ECDC4"; // Teal for RP2
+                                          }
+                                        }
+                                        
+                                        return {
+                                          startTime,
+                                          endTime,
+                                          color: eventColor // Use scenario-based color for Single RP Down
+                                        };
+                                      }).filter((event: any) => event.startTime && event.endTime)
+                                    : undefined
+                                }
+                                legendNames={
+                                  popupData.section === "One RP Down" || popupData.section === "Both RP Down"
+                                    ? {
+                                        normal: "Raw mill feed rate",
+                                        event: "Ramp-up event"
+                                      }
+                                    : popupData.section === "Reduced Feed Operations"
+                                      ? {
+                                          normal: "Raw mill feed rate",
+                                          event: "Low feed event"
+                                        }
+                                    : undefined
+                                }
+                              />
+                            )}
+                            
+                            {/* Show message if no trend data available */}
+                            
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              )}
             </div>
           </div>
         </div>

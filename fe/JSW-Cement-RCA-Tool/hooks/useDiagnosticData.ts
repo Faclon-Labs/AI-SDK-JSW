@@ -92,10 +92,17 @@ export function useDiagnosticData(timeRange?: TimeRange) {
           });
           
           // Extract details
+          let deviationStr = undefined;
+          if (typeof resultData.SPC?.today === 'number' && typeof resultData.SPC?.target === 'number' && typeof resultData.SPC?.deviation === 'number') {
+            const diff = resultData.SPC.today - resultData.SPC.target;
+            const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(2);
+            const percentStr = resultData.SPC.deviation.toFixed(2) + '%';
+            deviationStr = `${diffStr} (${percentStr})`;
+          }
           const details = {
             targetSPC: resultData.SPC?.target ? `${resultData.SPC.target} kWh/t` : undefined,
             daySPC: resultData.SPC?.today ? `${resultData.SPC.today.toFixed(2)} kWh/t` : undefined,
-            deviation: resultData.SPC?.deviation ? `+${resultData.SPC.deviation.toFixed(2)}%` : undefined,
+            deviation: deviationStr,
             impact: resultData.SPC?.Impact || 'N/A'
           };
 
