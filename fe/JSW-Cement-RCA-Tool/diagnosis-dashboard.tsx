@@ -149,7 +149,7 @@ export default function Component() {
 
   // Pass the selected time range to the hook
   const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
-  const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "all">("all")
+  const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "normal" | "all">("all")
   const [searchTerm, setSearchTerm] = useState<string>("")
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [popupData, setPopupData] = useState<{isOpen: boolean, data: any, section: string, backendData?: any}>({
@@ -553,178 +553,394 @@ export default function Component() {
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
       let yPosition = 20;
-      const pageHeight = doc.internal.pageSize.height;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 20;
       
-      // Title
-      doc.setFontSize(20);
+      // Header with blue band
+      doc.setFillColor(52, 152, 219); // Blue color
+      doc.rect(0, 0, pageWidth, 30, 'F');
+      
+      // Header text
+      doc.setTextColor(255, 255, 255); // White text
+      doc.setFontSize(16);
       doc.setFont('helvetica', 'bold');
-      doc.text('Diagnostic Report', margin, yPosition);
+      doc.text('Connect Everything', pageWidth - 25, 20, { align: 'right' });
+      
+      // Reset text color for main content
+      doc.setTextColor(44, 62, 80); // Dark blue-gray
+      
+      // Main title
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text('JSW Cement RCA Tool Report', pageWidth / 2, 60, { align: 'center' });
+      yPosition = 80;
+      
+      // Executive Summary section
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Executive Summary', margin, yPosition);
       yPosition += 15;
       
-      // Report info
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, margin, yPosition);
-      yPosition += 8;
-      doc.text(`Time Range: ${selectedRange.startDate} ${selectedRange.startTime} - ${selectedRange.endDate} ${selectedRange.endTime}`, margin, yPosition);
-      yPosition += 8;
-      doc.text(`Total Records: ${filteredData.length}`, margin, yPosition);
-      yPosition += 8;
-      doc.text(`Filter Applied: ${selectedFilter === 'all' ? 'All' : selectedFilter.charAt(0).toUpperCase() + selectedFilter.slice(1)}`, margin, yPosition);
-      yPosition += 15;
+      doc.setTextColor(60, 60, 60);
+      const summaryText = `This diagnostic report provides a comprehensive analysis of cement plant operations based on data from ${selectedRange.startDate} to ${selectedRange.endDate}. The analysis covers SPC (Specific Power Consumption), TPH (Tons Per Hour) operations, and High Power consumption patterns. The report identifies ${filteredData.length} diagnostic events with varying impact levels on plant efficiency.`;
       
-      // Summary statistics
+      // Split text into lines that fit the page width
+      const splitText = doc.splitTextToSize(summaryText, pageWidth - 2 * margin);
+      doc.text(splitText, margin, yPosition);
+      yPosition += splitText.length * 6 + 20;
+      
+      // Summary Statistics with colored boxes
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(44, 62, 80);
+      doc.text('Summary Statistics', margin, yPosition);
+      yPosition += 20;
+      
+      // Create colored statistic boxes
+      const stats = [
+        { label: 'Total Records', value: filteredData.length, color: [52, 152, 219] }, // Blue
+        { label: 'High Priority', value: diagnosticData.filter(item => item.status.toLowerCase() === 'high').length, color: [231, 76, 60] }, // Red
+        { label: 'Medium Priority', value: diagnosticData.filter(item => item.status.toLowerCase() === 'medium').length, color: [243, 156, 18] }, // Orange
+        { label: 'Normal', value: diagnosticData.filter(item => item.status.toLowerCase() === 'normal').length, color: [46, 204, 113] }, // Green
+        { label: 'Low Priority', value: diagnosticData.filter(item => item.status.toLowerCase() === 'low').length, color: [52, 73, 94] } // Dark Blue
+      ];
+      
+      const boxWidth = (pageWidth - 2 * margin - 40) / 5; // 5 boxes with spacing
+      const boxHeight = 25;
+      
+      stats.forEach((stat, index) => {
+        const xPos = margin + (index * (boxWidth + 10));
+        
+        // Colored background box
+        doc.setFillColor(stat.color[0], stat.color[1], stat.color[2]);
+        doc.rect(xPos, yPosition - 15, boxWidth, boxHeight, 'F');
+        
+        // White text
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text(stat.value.toString(), xPos + boxWidth / 2, yPosition - 5, { align: 'center' });
+        
+        doc.setFontSize(8);
+        doc.text(stat.label, xPos + boxWidth / 2, yPosition + 5, { align: 'center' });
+      });
+      
+      yPosition += 40;
+      
+      // Analysis of Device Data section
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(44, 62, 80);
+      doc.text('Analysis of Device Data', margin, yPosition);
+      yPosition += 20;
+      
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text('Summary by Status:', margin, yPosition);
-      yPosition += 8;
-      
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      const highCount = diagnosticData.filter(item => item.status.toLowerCase() === 'high').length;
-      const mediumCount = diagnosticData.filter(item => item.status.toLowerCase() === 'medium').length;
-      const lowCount = diagnosticData.filter(item => item.status.toLowerCase() === 'low').length;
-      
-      doc.text(`High Priority: ${highCount}`, margin, yPosition);
-      yPosition += 6;
-      doc.text(`Medium Priority: ${mediumCount}`, margin, yPosition);
-      yPosition += 6;
-      doc.text(`Low Priority: ${lowCount}`, margin, yPosition);
+      doc.text('Device Analysis and Insights', margin, yPosition);
       yPosition += 15;
       
       // Group data by date
       const groupedData = groupDataByDate(filteredData);
-      const sortedDates = Object.keys(groupedData).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      const sortedDates = Object.keys(groupedData).sort();
       
-      // Daily sections
       sortedDates.forEach((date, dateIndex) => {
         const dailyData = groupedData[date];
         
         // Check if we need a new page
-        if (yPosition > pageHeight - 80) {
+        if (yPosition > pageHeight - 100) {
           doc.addPage();
           yPosition = 20;
-        }
-        
-        // Date header
-        doc.setFontSize(16);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${date} (${dailyData.length} records)`, margin, yPosition);
-        yPosition += 10;
-        
-        // Daily summary table
-        const dailyTableData = dailyData.map(item => [
-          formatTime(item.timestamp),
-          item.resultName || 'N/A',
-          item.issue && item.issue.length > 30 ? item.issue.substring(0, 30) + '...' : item.issue || 'N/A',
-          item.status || 'N/A',
-          item.backendData?.SPC?.Impact || 'N/A'
-        ]);
-        
-        try {
-          autoTable(doc, {
-            startY: yPosition,
-            head: [['Time', 'Asset', 'Issue', 'Status', 'Impact']],
-            body: dailyTableData,
-            styles: { fontSize: 9, cellPadding: 2 },
-            headStyles: { fillColor: [59, 130, 246], textColor: 255 },
-            columnStyles: {
-              0: { cellWidth: 25 },
-              1: { cellWidth: 30 },
-              2: { cellWidth: 60 },
-              3: { cellWidth: 20 },
-              4: { cellWidth: 25 }
-            },
-            margin: { left: margin, right: margin }
-          });
           
-          // Get final Y position after table
-          yPosition = (doc as any).lastAutoTable?.finalY || yPosition + (dailyTableData.length * 10) + 20;
-        } catch (tableError) {
-          console.warn('Error creating table, continuing with text format:', tableError);
-          // Fallback to text format if table fails
-          dailyTableData.forEach((row, index) => {
-            if (yPosition > pageHeight - 20) {
-              doc.addPage();
-              yPosition = 20;
-            }
-            doc.setFontSize(10);
-            doc.text(`${row[0]} | ${row[1]} | ${row[2]} | ${row[3]}`, margin, yPosition);
-            yPosition += 6;
-          });
-        }
-        
-        yPosition += 15;
-        
-        // Detailed analysis for each record of the day
-        dailyData.forEach((item, itemIndex) => {
-          // Check if we need a new page
-          if (yPosition > pageHeight - 60) {
-            doc.addPage();
-            yPosition = 20;
-          }
-          
+          // Add header to new page
+          doc.setFillColor(52, 152, 219);
+          doc.rect(0, 0, pageWidth, 20, 'F');
+          doc.setTextColor(255, 255, 255);
           doc.setFontSize(12);
           doc.setFont('helvetica', 'bold');
-          doc.text(`Record ${itemIndex + 1}: ${item.resultName || 'N/A'}`, margin, yPosition);
-          yPosition += 8;
+          doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+          doc.setTextColor(44, 62, 80);
+          yPosition = 40;
+        }
+        
+        // Date header with background
+        doc.setFillColor(236, 240, 241); // Light gray background
+        doc.rect(margin - 5, yPosition - 8, pageWidth - 2 * margin + 10, 12, 'F');
+        
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(44, 62, 80);
+        doc.text(`Date: ${date}`, margin, yPosition);
+        yPosition += 20;
+        
+        // Records for this date
+        dailyData.forEach((item, itemIndex) => {
+          // Check if we need a new page
+          if (yPosition > pageHeight - 120) {
+            doc.addPage();
+            yPosition = 20;
+            
+            // Add header to new page
+            doc.setFillColor(52, 152, 219);
+            doc.rect(0, 0, pageWidth, 20, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+            doc.setTextColor(44, 62, 80);
+            yPosition = 40;
+          }
+          
+          // Device ID header
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(52, 152, 219); // Blue color
+          doc.text(`Device ID: ${item.resultName || 'N/A'}`, margin, yPosition);
+          yPosition += 12;
           
           doc.setFontSize(10);
           doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
           
-          // SPC Data if available
+          // Create structured sections like in the UI
+          const sections = [];
+          
+          // Basic Info Section
+          sections.push({
+            title: 'Basic Information',
+            items: [
+              `Date of Report: ${date}`,
+              `Status: ${item.status}`,
+              `Device: ${item.backendData?.TPH?.Device || item.resultName || 'N/A'}`
+            ]
+          });
+          
+          // SPC Section
           if (item.backendData?.SPC) {
             const spc = item.backendData.SPC;
-            doc.text(`SPC Target: ${formatNumber(spc.target)} kWh/t`, margin + 5, yPosition);
-            yPosition += 5;
-            doc.text(`SPC Today: ${formatNumber(spc.today)} kWh/t`, margin + 5, yPosition);
-            yPosition += 5;
-            doc.text(`Deviation: ${formatNumber(spc.deviation)}%`, margin + 5, yPosition);
-            yPosition += 5;
-            doc.text(`Impact: ${spc.Impact || 'N/A'}`, margin + 5, yPosition);
-            yPosition += 5;
-          }
-          
-          // TPH Data if available
-          if (item.backendData?.TPH) {
-            const tph = item.backendData.TPH;
-            doc.text(`TPH Analysis:`, margin + 5, yPosition);
-            yPosition += 5;
-            doc.text(`  Device: ${tph.Device || 'N/A'}`, margin + 10, yPosition);
-            yPosition += 5;
-            doc.text(`  Cause: ${tph.cause || 'N/A'}`, margin + 10, yPosition);
-            yPosition += 5;
-            if (tph.target) {
-              doc.text(`  Target: ${formatNumber(tph.target)}`, margin + 10, yPosition);
-              yPosition += 5;
-            }
-          }
-          
-          // High Power Data if available
-          if (item.backendData?.High_Power) {
-            const hp = item.backendData.High_Power;
-            doc.text(`High Power Analysis:`, margin + 5, yPosition);
-            yPosition += 5;
-            
-            Object.entries(hp).forEach(([subsection, data]) => {
-              if (typeof data === 'object' && data !== null && subsection !== 'Device') {
-                const subsectionData = data as any;
-                doc.text(`  ${subsection}: ${subsectionData.cause || 'N/A'}`, margin + 10, yPosition);
-                yPosition += 5;
-              }
+            sections.push({
+              title: 'SPC Analysis',
+              items: [
+                `SPC Target: ${formatNumber(spc.target)} kWh/t`,
+                `SPC Today: ${formatNumber(spc.today)} kWh/t`,
+                `Deviation: ${formatNumber(spc.deviation)}%`,
+                `Impact: ${spc.Impact || 'N/A'}`
+              ]
             });
           }
           
-          yPosition += 5; // Space between records
+          // TPH Section
+          if (item.backendData?.TPH) {
+            const tph = item.backendData.TPH;
+            const tphItems = [];
+            
+            if (tph.cause) {
+              tphItems.push(`Cause: ${tph.cause}`);
+            }
+            if (tph.target) {
+              tphItems.push(`Target TPH: ${formatNumber(tph.target)}`);
+            }
+            
+            // Add TPH subsections
+            if (tph.one_rp_down && typeof tph.one_rp_down === 'object') {
+              tphItems.push('Single RP Down Analysis:');
+              Object.entries(tph.one_rp_down).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  tphItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            if (tph.both_rp_down && typeof tph.both_rp_down === 'object') {
+              tphItems.push('Both RP Down Analysis:');
+              Object.entries(tph.both_rp_down).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  tphItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            if (tph["Reduced Feed Operations"] && typeof tph["Reduced Feed Operations"] === 'object') {
+              tphItems.push('Reduced Feed Operations:');
+              Object.entries(tph["Reduced Feed Operations"]).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  tphItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            if (tphItems.length > 0) {
+              sections.push({
+                title: 'TPH Analysis',
+                items: tphItems
+              });
+            }
+          }
+          
+          // High Power Section
+          if (item.backendData?.High_Power) {
+            const hp = item.backendData.High_Power;
+            const hpItems = [];
+            
+            if (hp.Device) {
+              hpItems.push(`Device: ${hp.Device}`);
+            }
+            
+            if (hp.SKS_FAN && typeof hp.SKS_FAN === 'object') {
+              hpItems.push('SKS Fan Analysis:');
+              Object.entries(hp.SKS_FAN).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  hpItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            if (hp.mill_auxiliaries && typeof hp.mill_auxiliaries === 'object') {
+              hpItems.push('Mill Auxiliaries Analysis:');
+              Object.entries(hp.mill_auxiliaries).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  hpItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            if (hp.product_transportation && typeof hp.product_transportation === 'object') {
+              hpItems.push('Product Transportation Analysis:');
+              Object.entries(hp.product_transportation).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  hpItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            if (hpItems.length > 0) {
+              sections.push({
+                title: 'High Power Analysis',
+                items: hpItems
+              });
+            }
+          }
+          
+          // Idle Running Section
+          if (item.backendData?.idle_running) {
+            const idle = item.backendData.idle_running;
+            if (idle.cause) {
+              sections.push({
+                title: 'Idle Running Analysis',
+                items: [`Cause: ${idle.cause}`]
+              });
+            }
+          }
+          
+          // Render sections with proper formatting
+          sections.forEach((section, sectionIndex) => {
+            // Check if we need a new page
+            if (yPosition > pageHeight - 60) {
+              doc.addPage();
+              yPosition = 20;
+              
+              // Add header to new page
+              doc.setFillColor(52, 152, 219);
+              doc.rect(0, 0, pageWidth, 20, 'F');
+              doc.setTextColor(255, 255, 255);
+              doc.setFontSize(12);
+              doc.setFont('helvetica', 'bold');
+              doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+              doc.setTextColor(44, 62, 80);
+              yPosition = 40;
+            }
+            
+            // Section title with background
+            doc.setFillColor(236, 240, 241); // Light gray background
+            doc.rect(margin - 5, yPosition - 8, pageWidth - 2 * margin + 10, 12, 'F');
+            
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(44, 62, 80);
+            doc.text(section.title, margin, yPosition);
+            yPosition += 15;
+            
+            // Section items
+            section.items.forEach((item, itemIndex) => {
+              // Check if we need a new page
+              if (yPosition > pageHeight - 20) {
+                doc.addPage();
+                yPosition = 20;
+                
+                // Add header to new page
+                doc.setFillColor(52, 152, 219);
+                doc.rect(0, 0, pageWidth, 20, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(12);
+                doc.setFont('helvetica', 'bold');
+                doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+                doc.setTextColor(44, 62, 80);
+                yPosition = 40;
+              }
+              
+              // Determine indentation level
+              let indentLevel = 0;
+              let displayText = item;
+              
+              if (item.startsWith('  • ')) {
+                indentLevel = 1;
+                displayText = item.substring(4); // Remove "  • "
+              } else if (item.startsWith('    • ')) {
+                indentLevel = 2;
+                displayText = item.substring(6); // Remove "    • "
+              } else if (item.startsWith('  ')) {
+                indentLevel = 1;
+                displayText = item.substring(2); // Remove "  "
+              }
+              
+              // Split long text into multiple lines
+              const maxWidth = pageWidth - 2 * margin - 8 - (indentLevel * 8);
+              const splitText = doc.splitTextToSize(displayText, maxWidth);
+              
+                             splitText.forEach((line: string, lineIndex: number) => {
+                // Check if we need a new page for this line
+                if (yPosition > pageHeight - 20) {
+                  doc.addPage();
+                  yPosition = 20;
+                  
+                  // Add header to new page
+                  doc.setFillColor(52, 152, 219);
+                  doc.rect(0, 0, pageWidth, 20, 'F');
+                  doc.setTextColor(255, 255, 255);
+                  doc.setFontSize(12);
+                  doc.setFont('helvetica', 'bold');
+                  doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+                  doc.setTextColor(44, 62, 80);
+                  yPosition = 40;
+                }
+                
+                // Bullet point (only for first line)
+                if (lineIndex === 0) {
+                  doc.setFillColor(52, 152, 219);
+                  doc.circle(margin + 2 + (indentLevel * 8), yPosition - 2, 1, 'F');
+                }
+                
+                // Text with proper indentation
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(60, 60, 60);
+                doc.text(line, margin + 8 + (indentLevel * 8), yPosition);
+                yPosition += 6;
+              });
+            });
+            
+            yPosition += 10; // Space between sections
+          });
+          
+          yPosition += 15;
         });
-        
-        yPosition += 10; // Space between days
       });
       
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-      const filename = `Diagnostic_Report_${timestamp}.pdf`;
+      const filename = `JSW_Cement_RCA_Report_${timestamp}.pdf`;
       
       // Save the PDF
       doc.save(filename);
@@ -742,9 +958,13 @@ export default function Component() {
       // Create a new workbook
       const workbook = XLSX.utils.book_new();
       
-      // Prepare summary data
+      // Prepare Executive Summary data
       const summaryData = [
-        ['Diagnostic Report'],
+        ['JSW Cement RCA Tool Report'],
+        [''],
+        ['Executive Summary'],
+        [''],
+        [`This diagnostic report provides a comprehensive analysis of cement plant operations based on data from ${selectedRange.startDate} to ${selectedRange.endDate}. The analysis covers SPC (Specific Power Consumption), TPH (Tons Per Hour) operations, and High Power consumption patterns. The report identifies ${filteredData.length} diagnostic events with varying impact levels on plant efficiency.`],
         [''],
         ['Report Generated:', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
         ['Time Range:', `${selectedRange.startDate} ${selectedRange.startTime} - ${selectedRange.endDate} ${selectedRange.endTime}`],
@@ -752,16 +972,28 @@ export default function Component() {
         ['Filter Applied:', selectedFilter === 'all' ? 'All' : selectedFilter.charAt(0).toUpperCase() + selectedFilter.slice(1)],
         ['Search Term:', searchTerm || 'None'],
         [''],
-        ['Summary by Status:'],
-        ['High Priority:', diagnosticData.filter(item => item.status.toLowerCase() === 'high').length.toString()],
-        ['Medium Priority:', diagnosticData.filter(item => item.status.toLowerCase() === 'medium').length.toString()],
-        ['Low Priority:', diagnosticData.filter(item => item.status.toLowerCase() === 'low').length.toString()],
+        ['Summary Statistics'],
+        [''],
+        ['Category', 'Count', 'Color Code'],
+        ['Total Records', filteredData.length.toString(), 'Blue'],
+        ['High Priority', diagnosticData.filter(item => item.status.toLowerCase() === 'high').length.toString(), 'Red'],
+        ['Medium Priority', diagnosticData.filter(item => item.status.toLowerCase() === 'medium').length.toString(), 'Orange'],
+        ['Normal', diagnosticData.filter(item => item.status.toLowerCase() === 'normal').length.toString(), 'Green'],
+        ['Low Priority', diagnosticData.filter(item => item.status.toLowerCase() === 'low').length.toString(), 'Dark Blue'],
         ['']
       ];
 
-      // Add summary sheet
+      // Add summary sheet with styling
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+      
+      // Set column widths
+      summarySheet['!cols'] = [
+        { width: 20 },
+        { width: 15 },
+        { width: 15 }
+      ];
+      
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Executive Summary');
 
       // Prepare main diagnostic data
       const diagnosticHeaders = [
@@ -920,19 +1152,52 @@ export default function Component() {
         XLSX.utils.book_append_sheet(workbook, maintenanceSheet, 'Maintenance Events');
       }
 
-      // Style the sheets (make headers bold)
+      // Style the sheets with colors and formatting
       Object.keys(workbook.Sheets).forEach(sheetName => {
         const sheet = workbook.Sheets[sheetName];
         const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
         
-        // Style first row as header
-        for (let col = range.s.c; col <= range.e.c; col++) {
-          const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
-          if (sheet[cellAddress]) {
-            sheet[cellAddress].s = {
-              font: { bold: true },
-              fill: { fgColor: { rgb: 'E3F2FD' } }
-            };
+        // Style headers and sections
+        for (let row = range.s.r; row <= range.e.r; row++) {
+          for (let col = range.s.c; col <= range.e.c; col++) {
+            const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+            if (sheet[cellAddress]) {
+              const cellValue = sheet[cellAddress].v;
+              
+              // Style section headers (rows with only one column filled)
+              if (col === 0 && typeof cellValue === 'string' && 
+                  (cellValue.includes('Analysis') || cellValue.includes('Information') || 
+                   cellValue.startsWith('Date:') || cellValue.includes('Summary'))) {
+                sheet[cellAddress].s = {
+                  font: { bold: true, color: { rgb: '2C3E50' } },
+                  fill: { fgColor: { rgb: 'ECF0F1' } }
+                };
+              }
+              // Style main headers
+              else if (row === 0 || (col === 0 && typeof cellValue === 'string' && 
+                       (cellValue.includes('Category') || cellValue.includes('Timestamp') || 
+                        cellValue.includes('Asset') || cellValue.includes('Status')))) {
+                sheet[cellAddress].s = {
+                  font: { bold: true, color: { rgb: 'FFFFFF' } },
+                  fill: { fgColor: { rgb: '3498DB' } }
+                };
+              }
+              // Style status cells with colors
+              else if (typeof cellValue === 'string' && 
+                      (cellValue.toLowerCase() === 'high' || cellValue.toLowerCase() === 'medium' || 
+                       cellValue.toLowerCase() === 'normal' || cellValue.toLowerCase() === 'low')) {
+                let color = '000000';
+                if (cellValue.toLowerCase() === 'high') color = 'E74C3C';
+                else if (cellValue.toLowerCase() === 'medium') color = 'F39C12';
+                else if (cellValue.toLowerCase() === 'normal') color = '27AE60';
+                else if (cellValue.toLowerCase() === 'low') color = '34495E';
+                
+                sheet[cellAddress].s = {
+                  font: { bold: true, color: { rgb: color } },
+                  fill: { fgColor: { rgb: color + '20' } }
+                };
+              }
+            }
           }
         }
         
@@ -954,7 +1219,7 @@ export default function Component() {
 
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-      const filename = `Diagnostic_Report_${timestamp}.xlsx`;
+      const filename = `JSW_Cement_RCA_Report_${timestamp}.xlsx`;
 
       // Save the file
       XLSX.writeFile(workbook, filename);
@@ -1221,17 +1486,6 @@ export default function Component() {
             </svg>
             Refresh
           </Button>
-
-          <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-md">
-            <span className="font-medium">Insight:</span>
-            <span className="font-mono">INS_015ce0dcf91c</span>
-            <span>•</span>
-            <span className="font-medium">Results:</span>
-            <span>{diagnosticData.length}</span>
-            <span>•</span>
-            <span className="font-medium">Range:</span>
-            <span>Real-time data</span>
-          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -1259,11 +1513,22 @@ export default function Component() {
             onClick={() => setSelectedFilter(selectedFilter === "low" ? "all" : "low")}
             className={`cursor-pointer px-4 py-2 rounded-full text-sm font-medium transition-all ${
               selectedFilter === "low"
+                ? "bg-blue-500 text-white shadow-md"
+                : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+            }`}
+          >
+            Low ({diagnosticData.filter((item) => item.status.toLowerCase() === "low").length})
+          </div>
+
+          <div
+            onClick={() => setSelectedFilter(selectedFilter === "normal" ? "all" : "normal")}
+            className={`cursor-pointer px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              selectedFilter === "normal"
                 ? "bg-green-500 text-white shadow-md"
                 : "bg-green-100 text-green-700 hover:bg-green-200"
             }`}
           >
-            Low ({diagnosticData.filter((item) => item.status.toLowerCase() === "low").length})
+            Normal ({diagnosticData.filter((item) => item.status.toLowerCase() === "normal").length})
           </div>
         </div>
       </div>
@@ -1347,7 +1612,9 @@ export default function Component() {
                               ? "bg-red-100 text-red-800 hover:bg-red-100"
                               : item.status.toLowerCase() === "medium"
                                 ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
-                                : "bg-green-100 text-green-800 hover:bg-green-100"
+                                : item.status.toLowerCase() === "normal"
+                                  ? "bg-green-100 text-green-800 hover:bg-green-100"
+                                  : "bg-blue-100 text-blue-800 hover:bg-blue-100"
                           }
                         >
                           {item.status}
