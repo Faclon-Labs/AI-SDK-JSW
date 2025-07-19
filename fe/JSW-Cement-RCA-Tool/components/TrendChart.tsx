@@ -1,8 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
-import ZoomableLineChart from './ZoomableLineChart';
+import HighchartsLineChart from './HighchartsLineChart';
 import { Component as LumaSpin } from './ui/luma-spin';
 
 interface TrendChartProps {
@@ -46,7 +45,19 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   const isTPHSection = sensorList.includes('D49') && sensorList.includes('D5');
   
   // Check if this is a High Power section (has multiple sensors with names)
-  const isHighPowerSection = legendNames && Object.keys(legendNames).length > 0;
+  // Also include Reduced Feed Operations sections to avoid duplicate legend entries
+  const isReducedFeedOperations = title.toLowerCase().includes('reduced feed operations');
+  const isHighPowerSection = (legendNames && Object.keys(legendNames).length > 0) || isReducedFeedOperations;
+  
+  // Check if this is the SKS Fan section (contains D49, D5, and SKS Fan sensors)
+  const isSKSFanSection = sensorList.includes('D49') && sensorList.includes('D5') && 
+    (sensorList.includes('D209') || sensorList.some(s => s.includes('D104')));
+  
+  // Check if this is specifically the SKS Fan section from the title
+  const isSKSFanFromTitle = title.toLowerCase().includes('sks fan');
+  
+  // Check if this is the Raw Mill Feed Rate section (only D49 and D5)
+  const isRawMillFeedRateSection = sensorList.length === 2 && sensorList.includes('D49') && sensorList.includes('D5');
 
   // Debug: Log the parameters
   useEffect(() => {
@@ -57,9 +68,12 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
       endTime,
       title,
       isTPHSection,
+      isSKSFanSection,
+      isSKSFanFromTitle,
+      isRawMillFeedRateSection,
       events
     });
-  }, [deviceId, sensorList, startTime, endTime, title, isTPHSection, events]);
+  }, [deviceId, sensorList, startTime, endTime, title, isTPHSection, isSKSFanSection, isSKSFanFromTitle, isRawMillFeedRateSection, events]);
 
   useEffect(() => {
     const fetchTrendData = async () => {
@@ -113,6 +127,38 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
             });
           }
           
+          // Special processing for SKS Fan section (dual-line plot)
+          if (isSKSFanSection || isSKSFanFromTitle) {
+            processedData = result.data.map((point: DataPoint) => {
+              const d49Value = parseFloat(point.D49 || '0');
+              const d5Value = parseFloat(point.D5 || '0');
+              const calculatedValue = d49Value - d5Value;
+              // Cap negative values at 0
+              const finalValue = Math.max(0, calculatedValue);
+              
+              return {
+                ...point,
+                'Raw mill feed rate': finalValue
+              };
+            });
+          }
+          
+          // Special processing for Raw Mill Feed Rate section (calculated value)
+          if (isRawMillFeedRateSection) {
+            processedData = result.data.map((point: DataPoint) => {
+              const d49Value = parseFloat(point.D49 || '0');
+              const d5Value = parseFloat(point.D5 || '0');
+              const calculatedValue = d49Value - d5Value;
+              // Cap negative values at 0
+              const finalValue = Math.max(0, calculatedValue);
+              
+              return {
+                ...point,
+                'Raw mill feed rate': finalValue
+              };
+            });
+          }
+          
           setData(processedData);
         } else {
           throw new Error(result.error || 'Failed to fetch trend data');
@@ -135,7 +181,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
         endTime: !!endTime
       });
     }
-  }, [deviceId, sensorList, startTime, endTime, isTPHSection]);
+  }, [deviceId, sensorList, startTime, endTime, isTPHSection, isSKSFanSection, isSKSFanFromTitle, isRawMillFeedRateSection]);
 
   if (loading) {
     return (
@@ -175,143 +221,58 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
     target: targetValue, // Add target value to each data point
   }));
 
-  // Calculate dynamic Y-axis domain for High Power sections
-  const calculateYAxisDomain = () => {
-    if (!isHighPowerSection || processedData.length === 0) return undefined;
-    
-    let maxValue = 0;
-    
-    // Find the maximum value across all sensors
-    processedData.forEach(point => {
-      displaySensors.forEach(sensor => {
-        const value = parseFloat((point as any)[sensor] || '0');
-        if (!isNaN(value) && value > maxValue) {
-          maxValue = value;
-        }
-      });
-    });
-    
-    // Add 20% padding to the maximum value
-    const paddedMax = Math.ceil(maxValue * 1.2);
-    
-    return [0, paddedMax];
-  };
 
-  // Formatter for IST date+time from timestamp
-  const formatTimestamp = (ts: number) => {
-    const date = new Date(ts);
-    return date.toLocaleString('en-IN', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: 'Asia/Kolkata'
-    });
-  };
 
   // Determine which sensors to display
-  const displaySensors = isTPHSection ? ['Raw mill feed rate'] : sensorList;
-
-  // Function to determine if a data point falls within any event period
-  const getEventColor = (timeStr: string) => {
-    if (!events || events.length === 0) return null;
-    
-    const pointTime = new Date(timeStr).getTime();
-    
-    for (let i = 0; i < events.length; i++) {
-      const event = events[i];
-      const eventStart = new Date(event.startTime).getTime();
-      const eventEnd = new Date(event.endTime).getTime();
-      
-      if (pointTime >= eventStart && pointTime <= eventEnd) {
-        return event.color || colors[i % colors.length]; // Changed from eventColors to colors
-      }
+  let displaySensors: string[];
+  if (isSKSFanSection || isSKSFanFromTitle) {
+    // Only show D209 and Raw mill feed rate if both are present
+    const hasD209 = sensorList.includes('D209');
+    // Always calculate 'Raw mill feed rate' if D49 and D5 are present
+    if (hasD209) {
+      displaySensors = ['D209', 'Raw mill feed rate'];
+    } else {
+      displaySensors = sensorList;
     }
-    
-    return null;
-  };
-
-  // Helper to split data into colored segments with full data alignment
-  function getSegmentedDataArrays(data: DataPoint[], events: Array<{
-    startTime: string;
-    endTime: string;
-    color?: string;
-  }>, sensor: string) {
-    if (!events || events.length === 0) {
-      return [{ color: normalColor, dataKey: `${sensor}_normal`, data: data.map(d => ({ ...d, [`${sensor}_normal`]: d[sensor] })) }];
-    }
-    // Build an array of segment objects: { color, dataKey, data }
-    let segments = [];
-    let segIdx = 0;
-    // Build a mask for each data point: is it in an event?
-    const mask = data.map(point => {
-      const pointTime = new Date(point.time).getTime();
-      for (const event of events) {
-        const eventStart = new Date(event.startTime).getTime();
-        const eventEnd = new Date(event.endTime).getTime();
-        if (pointTime >= eventStart && pointTime <= eventEnd) {
-          return true;
-        }
-      }
-      return false;
-    });
-    // Build event segment
-    const eventData = data.map((d, i) => ({ ...d, [`${sensor}_event`]: mask[i] ? d[sensor] : null }));
-    segments.push({ color: eventColor, dataKey: `${sensor}_event`, data: eventData });
-    // Build normal segment
-    const normalData = data.map((d, i) => ({ ...d, [`${sensor}_normal`]: !mask[i] ? d[sensor] : null }));
-    segments.push({ color: normalColor, dataKey: `${sensor}_normal`, data: normalData });
-    return segments;
+  } else if (isTPHSection) {
+    displaySensors = ['Raw mill feed rate'];
+  } else if (isRawMillFeedRateSection) {
+    displaySensors = ['Raw mill feed rate'];
+  } else {
+    displaySensors = sensorList;
   }
 
-  // Create colored line segments for TPH sections with events
-  const renderColoredLines = () => {
-    if (!isTPHSection || !events || events.length === 0) {
-      // Return regular lines for non-TPH sections or when no events
-      return displaySensors.map((sensor, index) => (
-        <Line
-          key={sensor}
-          type="monotone"
-          dataKey={sensor}
-          stroke={colors[index % colors.length]}
-          strokeWidth={2}
-          dot={false}
-          activeDot={false}
-          data={processedData}
-        />
-      ));
+  // Assign colors: D209 = blue, Raw mill feed rate = yellow in SKS Fan section, blue in other sections
+  const getLineColor = (sensor: string, index: number) => {
+    if (sensor === 'D209') return '#3263fc'; // blue for SKS Fan Speed
+    if (sensor === 'Raw mill feed rate') {
+      // In SKS Fan section: yellow, in other sections: blue
+      if (isSKSFanSection || isSKSFanFromTitle) {
+        return '#ff8d13  '; // green for SKS Fan section
+      } else {
+        return '#3263fc'; // blue for other sections
+      }
     }
-    // For TPH sections with events, create two segments per sensor, both using the full data array
-    const lines: React.ReactElement[] = [];
-    displaySensors.forEach((sensor, sensorIndex) => {
-      const segments = getSegmentedDataArrays(processedData, events, sensor);
-      segments.forEach((seg, segIdx) => {
-        lines.push(
-          <Line
-            key={`${sensor}-seg-${segIdx}`}
-            type="monotone"
-            dataKey={seg.dataKey}
-            stroke={seg.color}
-            strokeWidth={2}
-            dot={false}
-            activeDot={false}
-            data={seg.data}
-            isAnimationActive={false}
-            connectNulls={false}
-          />
-        );
-      });
-    });
-    return lines;
+    return colors[index % colors.length];
   };
 
   // Prepare processedData and lines for ZoomableLineChart
   const lines: Array<{key: string, name: string, color: string}> = displaySensors.map((sensor, index) => ({
     key: sensor,
     name: legendNames?.[sensor] || sensor,
-    color: colors[index % colors.length],
+    color: getLineColor(sensor, index),
   }));
+
+  // Function to determine event type based on title
+  const getEventType = (): 'RP1' | 'RP2' | 'general' => {
+    const titleLower = title.toLowerCase();
+    if (titleLower.includes('rp1') || titleLower.includes('one rp down') || titleLower.includes('single rp down')) {
+      return 'RP1';
+    } else if (titleLower.includes('rp2') || titleLower.includes('both rp down')) {
+      return 'RP2';
+    }
+    return 'general';
+  };
 
   // Transform events to eventRanges format for ZoomableLineChart
   const eventRanges: EventRange[] = events?.map((event, index) => ({
@@ -321,27 +282,33 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
     label: `Event ${index + 1}`
   })) || [];
 
-  // For High Power sections, use ZoomableLineChart with proper configuration
+  const eventType = getEventType();
+
+  // For High Power sections, use HighchartsLineChart with proper configuration
   if (isHighPowerSection) {
     return (
-      <ZoomableLineChart
+      <HighchartsLineChart
         data={processedData}
         lines={lines}
         title={title}
         eventRanges={eventRanges}
         targetValue={targetValue}
         isHighPowerSection={true}
+        eventType={eventType}
+        events={events}
       />
     );
   }
 
   return (
-    <ZoomableLineChart
+    <HighchartsLineChart
       data={processedData}
       lines={lines}
       title={title}
       eventRanges={eventRanges}
       targetValue={targetValue}
+      eventType={eventType}
+      events={events}
     />
   );
 } 

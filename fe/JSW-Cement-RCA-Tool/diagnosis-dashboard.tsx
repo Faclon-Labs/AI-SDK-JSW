@@ -150,8 +150,11 @@ export default function Component() {
   // Pass the selected time range to the hook
   const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
   const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "normal" | "all">("all")
-  const [searchTerm, setSearchTerm] = useState<string>("")
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [sortConfig, setSortConfig] = useState<{
+    key: string;
+    direction: 'asc' | 'desc';
+  } | null>(null)
   const [popupData, setPopupData] = useState<{isOpen: boolean, data: any, section: string, backendData?: any}>({
     isOpen: false,
     data: null,
@@ -324,28 +327,7 @@ export default function Component() {
       }
     }
     
-    // Look for sensor IDs in nested objects
-    const searchForSensors = (obj: any): string[] | null => {
-      if (typeof obj === 'object' && obj !== null) {
-        for (const [key, value] of Object.entries(obj)) {
-          if (key.toLowerCase().includes('sensor') || key.toLowerCase().includes('sensorid')) {
-            if (Array.isArray(value)) {
-              return value;
-            } else if (typeof value === 'string') {
-              return [value];
-            }
-          }
-          // Recursively search nested objects
-          if (typeof value === 'object' && value !== null) {
-            const result = searchForSensors(value);
-            if (result) return result;
-          }
-        }
-      }
-      return null;
-    };
-    
-    return searchForSensors(sectionData);
+    return null;
   };
 
   // Function to extract sensor names for legend
@@ -388,7 +370,54 @@ export default function Component() {
     const deviceId = extractDeviceId(data);
     const sensorIds = extractSensorIds(data, section);
     
+    // Special handling for Mill Auxiliaries - check if sensor keys are available
+    if (section === "Mill Auxiliaries") {
+      const millAuxData = data?.High_Power?.mill_auxiliaries;
+      if (!millAuxData || !millAuxData.sensor) {
+        return false; // Disable trend if no sensor keys available
+      }
+    }
+    
     return !!(deviceId && sensorIds && sensorIds.length > 0);
+  };
+
+  // Function to get sensor list for SKS Fan with dual sensors
+  const getSKSFanSensorList = (data: any): string[] => {
+    const sksFanData = data?.High_Power?.SKS_FAN;
+    if (!sksFanData || !sksFanData.sensor) {
+      return ["D209"]; // Default fallback
+    }
+    
+    const sensors: string[] = [];
+    
+    // Add SKS Fan Speed sensor
+    if (typeof sksFanData.sensor === 'object') {
+      sensors.push(...Object.keys(sksFanData.sensor));
+    }
+    
+    // Add Raw Mill Feed Rate sensors (D49 and D5) for calculation
+    if (!sensors.includes('D49')) sensors.push('D49');
+    if (!sensors.includes('D5')) sensors.push('D5');
+    
+    return sensors;
+  };
+
+  // Function to get sensor names for SKS Fan with dual sensors
+  const getSKSFanSensorNames = (data: any): Record<string, string> => {
+    const sksFanData = data?.High_Power?.SKS_FAN;
+    const sensorNames: Record<string, string> = {};
+    
+    // Add SKS Fan Speed sensor name
+    if (sksFanData?.sensor && typeof sksFanData.sensor === 'object') {
+      for (const [sensorId, sensorName] of Object.entries(sksFanData.sensor)) {
+        sensorNames[sensorId] = sensorName as string;
+      }
+    }
+    
+    // Add Raw Mill Feed Rate as calculated sensor
+    sensorNames['Raw mill feed rate'] = 'Raw Mill Feed Rate';
+    
+    return sensorNames;
   };
 
   // Function to check if trend data is available for a specific section
@@ -396,6 +425,7 @@ export default function Component() {
     if (!data) return false;
     let sectionData;
     switch (section) {
+      case "Single RP Down":
       case "One RP Down":
         sectionData = data?.TPH?.one_rp_down?.rampup;
         break;
@@ -970,7 +1000,7 @@ export default function Component() {
         ['Time Range:', `${selectedRange.startDate} ${selectedRange.startTime} - ${selectedRange.endDate} ${selectedRange.endTime}`],
         ['Total Records:', filteredData.length.toString()],
         ['Filter Applied:', selectedFilter === 'all' ? 'All' : selectedFilter.charAt(0).toUpperCase() + selectedFilter.slice(1)],
-        ['Search Term:', searchTerm || 'None'],
+        ['Search Term:', 'None'],
         [''],
         ['Summary Statistics'],
         [''],
@@ -997,29 +1027,25 @@ export default function Component() {
 
       // Prepare main diagnostic data
       const diagnosticHeaders = [
-        'Timestamp',
-        'Asset Name',
-        'Detected Issue',
-        'Status',
-        'Query Time Start',
-        'Query Time End',
-        'SPC Target',
-        'SPC Today',
-        'SPC Deviation (%)',
-        'SPC Impact'
+        'MILL NAME',
+        'TARGET',
+        'Day SPC',
+        'Deviation',
+        'Impact',
+        'Day'
       ];
 
       const diagnosticRows = filteredData.map(item => [
-        formatTime(item.timestamp),
-        item.resultName || 'N/A',
-        item.backendData?.detected_issue || 'N/A',
-        item.status,
-        item.backendData?.query_time?.[0] || 'N/A',
-        item.backendData?.query_time?.[1] || 'N/A',
-        formatNumber(item.backendData?.SPC?.target),
-        formatNumber(item.backendData?.SPC?.today),
-        formatNumber(item.backendData?.SPC?.deviation),
-        item.backendData?.SPC?.Impact || 'N/A'
+        item.millName || 'N/A',
+        item.backendData?.SPC?.target ? `${item.backendData.SPC.target} kWh/t` : 'N/A',
+        item.backendData?.SPC?.today ? `${item.backendData.SPC.today.toFixed(2)} kWh/t` : 'N/A',
+        item.backendData?.SPC?.deviation ? `${item.backendData.SPC.deviation.toFixed(2)}%` : 'N/A',
+        item.status || 'N/A',
+        new Date(item.timestamp).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        })
       ]);
 
       const diagnosticSheet = XLSX.utils.aoa_to_sheet([diagnosticHeaders, ...diagnosticRows]);
@@ -1231,160 +1257,89 @@ export default function Component() {
     }
   }
 
+  // Sorting function
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    
+    setSortConfig({ key, direction });
+  };
+
+  // Sort data function
+  const sortData = (data: any[]) => {
+    if (!sortConfig) return data;
+
+    return [...data].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortConfig.key) {
+        case 'millName':
+          aValue = a.millName || '';
+          bValue = b.millName || '';
+          break;
+        case 'target':
+          aValue = a.backendData?.SPC?.target || 0;
+          bValue = b.backendData?.SPC?.target || 0;
+          break;
+        case 'daySPC':
+          aValue = a.backendData?.SPC?.today || 0;
+          bValue = b.backendData?.SPC?.today || 0;
+          break;
+        case 'deviation':
+          aValue = a.backendData?.SPC?.deviation || 0;
+          bValue = b.backendData?.SPC?.deviation || 0;
+          break;
+        case 'impact':
+          aValue = a.status || '';
+          bValue = b.status || '';
+          break;
+        case 'day':
+          aValue = new Date(a.timestamp).getTime();
+          bValue = new Date(b.timestamp).getTime();
+          break;
+        default:
+          return 0;
+      }
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortConfig.direction === 'asc' 
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      } else {
+        return sortConfig.direction === 'asc' 
+          ? aValue - bValue
+          : bValue - aValue;
+      }
+    });
+  };
+
   const filteredData = diagnosticData.filter((item) => {
-    // First apply status filter
-    const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter
+    // Apply status filter
+    const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter;
     
-    // Then apply search filter across all data
-    const searchMatch = !searchTerm || (() => {
-      const searchLower = searchTerm.toLowerCase()
-      
-      // Search in basic fields
-      const basicMatch = 
-        item.millName.toLowerCase().includes(searchLower) ||
-        item.issue.toLowerCase().includes(searchLower) ||
-        item.status.toLowerCase().includes(searchLower) ||
-        item.lastUpdated.toLowerCase().includes(searchLower) ||
-        (item.details?.targetSPC && item.details.targetSPC.toLowerCase().includes(searchLower)) ||
-        (item.details?.daySPC && item.details.daySPC.toLowerCase().includes(searchLower)) ||
-        (item.details?.deviation && item.details.deviation.toLowerCase().includes(searchLower)) ||
-        (item.details?.impact && item.details.impact.toLowerCase().includes(searchLower))
-      
-      if (basicMatch) return true
-      
-      // Search in backend data (TPH section)
-      if (item.backendData?.TPH) {
-        const tph = item.backendData.TPH
-        if (
-          (tph.cause && tph.cause.toLowerCase().includes(searchLower)) ||
-          (tph.Device && tph.Device.toLowerCase().includes(searchLower)) ||
-          (tph.target && tph.target.toString().includes(searchLower)) ||
-          (tph.sensor && JSON.stringify(tph.sensor).toLowerCase().includes(searchLower))
-        ) return true
-        
-        // Search in TPH subsections
-        if (tph.one_rp_down) {
-          const oneRpDown = tph.one_rp_down
-          if (typeof oneRpDown === 'object') {
-            for (const key in oneRpDown) {
-              if (typeof oneRpDown[key] === 'string' && oneRpDown[key].toLowerCase().includes(searchLower)) {
-                return true
-              }
-            }
-          }
-        }
-        
-        if (tph.both_rp_down) {
-          const bothRpDown = tph.both_rp_down
-          if (typeof bothRpDown === 'object') {
-            for (const key in bothRpDown) {
-              if (typeof bothRpDown[key] === 'string' && bothRpDown[key].toLowerCase().includes(searchLower)) {
-                return true
-              }
-            }
-          }
-        }
-        
-        if (tph["Reduced Feed Operations"]) {
-          const reducedFeed = tph["Reduced Feed Operations"]
-          if (typeof reducedFeed === 'object') {
-            for (const key in reducedFeed) {
-              if (typeof reducedFeed[key] === 'string' && reducedFeed[key].toLowerCase().includes(searchLower)) {
-                return true
-              }
-            }
-          }
-        }
-        
-        // Search in maintenance data
-        if (tph.RP1_maintance && Array.isArray(tph.RP1_maintance)) {
-          for (const maintenance of tph.RP1_maintance) {
-            if (
-              (maintenance["Event Details"] && maintenance["Event Details"].toLowerCase().includes(searchLower)) ||
-              (maintenance["Department"] && maintenance["Department"].toLowerCase().includes(searchLower)) ||
-              (maintenance["Stoppage Category"] && maintenance["Stoppage Category"].toLowerCase().includes(searchLower)) ||
-              (maintenance["Reason of Stoppage"] && maintenance["Reason of Stoppage"].toLowerCase().includes(searchLower))
-            ) return true
-          }
-        }
-        
-        if (tph.RP2_maintance && Array.isArray(tph.RP2_maintance)) {
-          for (const maintenance of tph.RP2_maintance) {
-            if (
-              (maintenance["Event Details"] && maintenance["Event Details"].toLowerCase().includes(searchLower)) ||
-              (maintenance["Department"] && maintenance["Department"].toLowerCase().includes(searchLower)) ||
-              (maintenance["Stoppage Category"] && maintenance["Stoppage Category"].toLowerCase().includes(searchLower)) ||
-              (maintenance["Reason of Stoppage"] && maintenance["Reason of Stoppage"].toLowerCase().includes(searchLower))
-            ) return true
-          }
-        }
-        
-        // Search in lowfeed data
-        if (tph.lowfeed && Array.isArray(tph.lowfeed)) {
-          for (const lowfeed of tph.lowfeed) {
-            if (
-              (lowfeed.period_start && lowfeed.period_start.toLowerCase().includes(searchLower)) ||
-              (lowfeed.period_end && lowfeed.period_end.toLowerCase().includes(searchLower)) ||
-              (lowfeed.end_reason && lowfeed.end_reason.toLowerCase().includes(searchLower)) ||
-              (lowfeed.pumps_running && lowfeed.pumps_running.toString().includes(searchLower)) ||
-              (lowfeed.expected_tph && lowfeed.expected_tph.toString().includes(searchLower)) ||
-              (lowfeed.avg_tph && lowfeed.avg_tph.toString().includes(searchLower)) ||
-              (lowfeed.min_tph && lowfeed.min_tph.toString().includes(searchLower)) ||
-              (lowfeed.max_tph && lowfeed.max_tph.toString().includes(searchLower)) ||
-              (lowfeed.efficiency_loss_percent && lowfeed.efficiency_loss_percent.toString().includes(searchLower))
-            ) return true
-          }
-        }
-      }
-      
-      // Search in High Power section
-      if (item.backendData?.High_Power) {
-        const hp = item.backendData.High_Power
-        if (
-          (hp.Device && hp.Device.toLowerCase().includes(searchLower)) ||
-          (hp.sensor && JSON.stringify(hp.sensor).toLowerCase().includes(searchLower))
-        ) return true
-        
-        if (hp.SKS_FAN) {
-          const sksFan = hp.SKS_FAN
-          if (
-            (sksFan.cause && sksFan.cause.toLowerCase().includes(searchLower)) ||
-            (sksFan.sensor && JSON.stringify(sksFan.sensor).toLowerCase().includes(searchLower)) ||
-            (sksFan.Target && JSON.stringify(sksFan.Target).toLowerCase().includes(searchLower))
-          ) return true
-        }
-        
-        if (hp.mill_auxiliaries) {
-          const millAux = hp.mill_auxiliaries
-          if (millAux.cause && millAux.cause.toLowerCase().includes(searchLower)) {
-            return true
-          }
-        }
-        
-        if (hp.product_transportation) {
-          const productTrans = hp.product_transportation
-          if (productTrans.cause && productTrans.cause.toLowerCase().includes(searchLower)) {
-            return true
-          }
-        }
-      }
-      
-      // Search in idle running section
-      if (item.backendData?.idle_running) {
-        const idleRunning = item.backendData.idle_running
-        if (idleRunning.cause && idleRunning.cause.toLowerCase().includes(searchLower)) {
-          return true
-        }
-      }
-      
-      return false
-    })()
+    // Apply date range filter based on global time picker
+    const itemDate = new Date(item.timestamp);
+    const startDate = new Date(selectedRange.startDate);
+    const endDate = new Date(selectedRange.endDate);
     
-    return statusMatch && searchMatch
+    // Set time to start of day for comparison
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const dateMatch = itemDate >= startDate && itemDate <= endDate;
+    
+    return statusMatch && dateMatch;
   })
 
-  // Create expanded data from filtered data
-  const expandedData = filteredData.reduce((acc, item, index) => {
+  // Apply sorting to filtered data
+  const sortedData = sortData(filteredData);
+
+  // Create expanded data from sorted data
+  const expandedData = sortedData.reduce((acc, item, index) => {
     acc[index] = {
       targetSPC: item.details?.targetSPC || "N/A",
       daySPC: item.details?.daySPC || "N/A", 
@@ -1421,16 +1376,6 @@ export default function Component() {
       <div className="bg-white border-b px-6 py-4">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold text-gray-900">Automatic Diagnosis and Recommendation Dashboard</h1>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <Settings className="w-4 h-4" />
-              Configuration
-            </Button>
-            <Button variant="ghost" size="sm" className="gap-2 text-red-600 hover:text-red-700">
-              <LogOut className="w-4 h-4" />
-              Logout
-            </Button>
-          </div>
         </div>
       </div>
 
@@ -1565,43 +1510,116 @@ export default function Component() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="mb-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input 
-                  placeholder="Search faults, assets, or status..." 
-                  className="pl-10 pr-10" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm("")}
-                    className="absolute right-8 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-                <Filter className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              </div>
-            </div>
 
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[150px]">Mill Name</TableHead>
-                  <TableHead>Detected Issue</TableHead>
-                  <TableHead className="w-[100px]">Status</TableHead>
-                  <TableHead className="w-[180px]">Last Updated</TableHead>
+                  <TableHead 
+                    className="w-[150px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    onClick={() => handleSort('millName')}
+                  >
+                    <div className="flex items-center gap-1">
+                      MILL NAME
+                      {sortConfig?.key === 'millName' && (
+                        <span className="text-blue-600">
+                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    onClick={() => handleSort('target')}
+                  >
+                    <div className="flex items-center gap-1">
+                      TARGET
+                      {sortConfig?.key === 'target' && (
+                        <span className="text-blue-600">
+                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    onClick={() => handleSort('daySPC')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Date SPC
+                      {sortConfig?.key === 'daySPC' && (
+                        <span className="text-blue-600">
+                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    onClick={() => handleSort('deviation')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Deviation
+                      {sortConfig?.key === 'deviation' && (
+                        <span className="text-blue-600">
+                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    onClick={() => handleSort('impact')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Impact
+                      {sortConfig?.key === 'impact' && (
+                        <span className="text-blue-600">
+                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    onClick={() => handleSort('day')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Date
+                      {sortConfig?.key === 'day' && (
+                        <span className="text-blue-600">
+                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredData.map((item, index) => (
+                {sortedData.map((item, index) => (
                   <React.Fragment key={index}>
                     <TableRow className="hover:bg-gray-50">
-                      <TableCell className="font-medium">{item.millName}</TableCell>
-                      <TableCell className="text-sm text-gray-700">{item.issue}</TableCell>
+                      <TableCell className="font-medium text-base">{item.millName}</TableCell>
+                      <TableCell className="text-base text-gray-700">
+                        {item.backendData?.SPC?.target ? `${item.backendData.SPC.target} kWh/t` : 'N/A'}
+                      </TableCell>
+                      <TableCell className="text-base text-gray-700">
+                        {item.backendData?.SPC?.today ? `${item.backendData.SPC.today.toFixed(2)} kWh/t` : 'N/A'}
+                      </TableCell>
+                      <TableCell className="text-base text-gray-700">
+                        {item.backendData?.SPC?.deviation ? (() => {
+                          const deviationPercent = item.backendData.SPC.deviation;
+                          const targetValue = item.backendData.SPC.target;
+                          const todayValue = item.backendData.SPC.today;
+                          
+                          if (targetValue && todayValue) {
+                            const actualDeviation = todayValue - targetValue;
+                            const sign = actualDeviation >= 0 ? '+' : '';
+                            return `${sign}${actualDeviation.toFixed(2)} (${deviationPercent.toFixed(2)}%)`;
+                          }
+                          return `${deviationPercent.toFixed(2)}%`;
+                        })() : 'N/A'}
+                      </TableCell>
                       <TableCell>
                         <Badge
                           variant={
@@ -1609,18 +1627,29 @@ export default function Component() {
                           }
                           className={
                             item.status.toLowerCase() === "high"
-                              ? "bg-red-100 text-red-800 hover:bg-red-100"
+                              ? "bg-red-100 text-red-800 hover:bg-red-100 text-base"
                               : item.status.toLowerCase() === "medium"
-                                ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
+                                ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 text-base"
                                 : item.status.toLowerCase() === "normal"
-                                  ? "bg-green-100 text-green-800 hover:bg-green-100"
-                                  : "bg-blue-100 text-blue-800 hover:bg-blue-100"
+                                  ? "bg-green-100 text-green-800 hover:bg-green-100 text-base"
+                                  : "bg-blue-100 text-blue-800 hover:bg-blue-100 text-base"
                           }
                         >
                           {item.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-gray-600">{item.lastUpdated}</TableCell>
+                      <TableCell className="text-base text-gray-600">
+                        {(() => {
+                          const currentDate = new Date(item.timestamp);
+                          const previousDay = new Date(currentDate);
+                          previousDay.setDate(currentDate.getDate() - 1);
+                          return previousDay.toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric'
+                          });
+                        })()}
+                      </TableCell>
                       <TableCell>
                         <Button
                           variant="ghost"
@@ -1638,16 +1667,16 @@ export default function Component() {
                     </TableRow>
                     {expandedRows.has(index) && expandedData[index as keyof typeof expandedData] && (
                       <TableRow>
-                        <TableCell colSpan={5} className="bg-gray-50 p-6">
+                        <TableCell colSpan={7} className="bg-gray-50 p-6">
                           <div className="space-y-6">
                             {/* Level 1: KPI Cards */}
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                               <Card className="bg-white">
                                 <CardHeader className="pb-1 px-3 pt-2">
-                                  <CardTitle className="text-xs font-medium text-gray-600">Target SPC</CardTitle>
+                                  <CardTitle className="text-sm font-medium text-gray-600">Target SPC</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0 px-3 pb-2">
-                                  <div className="text-xl font-bold text-gray-900">
+                                  <div className="text-2xl font-bold text-gray-900">
                                     {expandedData[index as keyof typeof expandedData].targetSPC}
                                   </div>
                                   {/* Removed the green dot and 'Target' label */}
@@ -1656,48 +1685,50 @@ export default function Component() {
 
                               <Card className="bg-white">
                                 <CardHeader className="pb-1 px-3 pt-2">
-                                  <CardTitle className="text-xs font-medium text-gray-600">Day SPC</CardTitle>
+                                  <CardTitle className="text-sm font-medium text-gray-600">Date SPC</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0 px-3 pb-2">
-                                  <div className="text-xl font-bold text-gray-900">
+                                  <div className="text-2xl font-bold text-gray-900">
                                     {expandedData[index as keyof typeof expandedData].daySPC}
                                   </div>
                                   <div className="flex items-center mt-1">
                                     <div className="w-1.5 h-1.5 bg-red-500 rounded-full mr-1"></div>
-                                    <span className="text-xs text-red-600 font-medium">Above Target</span>
+                                    <span className="text-sm text-red-600 font-medium">Above Target</span>
                                   </div>
                                 </CardContent>
                               </Card>
 
                               <Card className="bg-white">
                                 <CardHeader className="pb-1 px-3 pt-2">
-                                  <CardTitle className="text-xs font-medium text-gray-600">Deviation</CardTitle>
+                                  <CardTitle className="text-sm font-medium text-gray-600">Deviation</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0 px-3 pb-2">
-                                  <div className="text-xl font-bold text-red-600">
+                                  <div className="text-2xl font-bold text-red-600">
                                     {expandedData[index as keyof typeof expandedData].deviation}
                                   </div>
                                   <div className="flex items-center mt-1">
                                     <div className="w-1.5 h-1.5 bg-red-500 rounded-full mr-1"></div>
-                                    <span className="text-xs text-red-600 font-medium">Above Target</span>
+                                    <span className="text-sm text-red-600 font-medium">Above Target</span>
                                   </div>
                                 </CardContent>
                               </Card>
 
                               <Card className="bg-white">
                                 <CardHeader className="pb-1 px-3 pt-2">
-                                  <CardTitle className="text-xs font-medium text-gray-600">Impact</CardTitle>
+                                  <CardTitle className="text-sm font-medium text-gray-600">Impact</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0 px-3 pb-2">
                                   <div 
-                                    className={`text-xl font-bold ${
+                                    className={`text-2xl font-bold ${
                                       item.status.toLowerCase().includes("high") ||
                                       item.status.toLowerCase().includes("critical") ||
                                       item.status.toLowerCase().includes("severe")
                                         ? "text-red-600"
                                         : item.status.toLowerCase().includes("medium") || item.status.toLowerCase().includes("moderate")
                                           ? "text-yellow-600"
-                                          : "text-green-600"
+                                          : item.status.toLowerCase().includes("low")
+                                            ? "text-blue-600"
+                                            : "text-green-600"
                                     }`}
                                   >
                                     {item.status}
@@ -1717,7 +1748,7 @@ export default function Component() {
                                 <AccordionItem value="lower-output" className="border-b">
                                   <AccordionTrigger className="px-4 py-3 hover:bg-gray-50 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                      <span className="text-gray-900 font-bold">Lower Output (TPH)</span>
+                                      <span className="text-gray-900 font-bold text-base">Lower Output (TPH)</span>
                                       <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                                         <path
                                           fillRule="evenodd"
@@ -1727,50 +1758,51 @@ export default function Component() {
                                       </svg>
                                     </div>
                                     <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="ml-auto transition-all duration-200 hover:bg-yellow-100 hover:text-yellow-700 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95"
+                                      className="ml-auto relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-yellow-100 hover:text-yellow-700 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-3 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                       onClick={e => {
                                         e.stopPropagation();
-                                        openMaintenancePopup(filteredData[index]?.backendData);
+                                        openMaintenancePopup(sortedData[index]?.backendData);
                                       }}
                                       disabled={
-                                        (!Array.isArray((filteredData[index]?.backendData?.TPH as any)?.RP1_maintance) || 
-                                         (filteredData[index]?.backendData?.TPH as any)?.RP1_maintance?.length === 0) &&
-                                        (!Array.isArray((filteredData[index]?.backendData?.TPH as any)?.RP2_maintance) || 
-                                         (filteredData[index]?.backendData?.TPH as any)?.RP2_maintance?.length === 0)
+                                        (!Array.isArray((sortedData[index]?.backendData?.TPH as any)?.RP1_maintance) || 
+                                         (sortedData[index]?.backendData?.TPH as any)?.RP1_maintance?.length === 0) &&
+                                        (!Array.isArray((sortedData[index]?.backendData?.TPH as any)?.RP2_maintance) || 
+                                         (sortedData[index]?.backendData?.TPH as any)?.RP2_maintance?.length === 0)
                                       }
                                       title="View maintenance events for RP1 and RP2"
                                     >
-                                      <Wrench className="w-6 h-6 transition-transform duration-200 group-hover:rotate-12 group-hover:scale-110" />
+                                      <Wrench className="w-4 h-4 text-yellow-700 transition-all duration-300 ease-in-out group-hover:rotate-12 group-hover:scale-110 group-hover:text-yellow-800 relative z-10" />
+                                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
                                     </Button>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
                                       {/* TPH Cause from backend */}
-                                      {filteredData[index]?.backendData?.TPH?.cause && (
-                                        <p className="text-gray-700">
-                                          {highlightNumbers(filteredData[index].backendData.TPH.cause)}
+                                      {sortedData[index]?.backendData?.TPH?.cause && (
+                                        <p className="text-gray-700 text-base">
+                                          {highlightNumbers(sortedData[index].backendData.TPH.cause)}
                                         </p>
                                       )}
 
                                       {/* One RP Down Section */}
-                                      {filteredData[index]?.backendData?.TPH?.one_rp_down && (
+                                      {sortedData[index]?.backendData?.TPH?.one_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-semibold text-gray-900">Single RP Down</h4>
+                                            <h4 className="font-semibold text-gray-900 text-base">Single RP Down</h4>
                                             <button
-                                              onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.one_rp_down?.rampup, "One RP Down", filteredData[index]?.backendData)}
-                                              className={`p-1 rounded transition-colors ${
-                                                hasTrendData(filteredData[index].backendData, "One RP Down")
-                                                  ? "hover:bg-gray-200 text-blue-600"
-                                                  : "text-gray-400 cursor-not-allowed opacity-50"
+                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.one_rp_down?.rampup, "Single RP Down", sortedData[index]?.backendData)}
+                                              className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                hasTrendData(sortedData[index].backendData, "Single RP Down")
+                                                  ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                  : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(filteredData[index].backendData, "One RP Down") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(filteredData[index].backendData, "One RP Down")}
+                                              title={hasTrendData(sortedData[index].backendData, "Single RP Down") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(sortedData[index].backendData, "Single RP Down")}
                                             >
                                               <svg
-                                                className="w-4 h-4"
+                                                className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                  hasTrendData(sortedData[index].backendData, "Single RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                }`}
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -1782,6 +1814,9 @@ export default function Component() {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
+                                              {hasTrendData(sortedData[index].backendData, "Single RP Down") && (
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                              )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
@@ -1792,7 +1827,7 @@ export default function Component() {
                                                     Object.entries(item).map(([key, value], j: number) => (
                                                       <div key={`one-rp-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">
+                                                        <span className="text-base text-gray-600">
                                                           {highlightNumbers(String(value))}
                                                         </span>
                                                       </div>
@@ -1813,7 +1848,7 @@ export default function Component() {
                                                       .map(([key, value], j) => (
                                                       <div key={`one-rp-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">
+                                                        <span className="text-base text-gray-600">
                                                           {highlightNumbers(String(value ?? ''))}
                                                         </span>
                                                       </div>
@@ -1821,7 +1856,7 @@ export default function Component() {
                                                     : (
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">
+                                                        <span className="text-base text-gray-600">
                                                           {highlightNumbers(String(filteredData[index].backendData.TPH.one_rp_down))}
                                                         </span>
                                                       </div>
@@ -1838,19 +1873,21 @@ export default function Component() {
                                       {filteredData[index]?.backendData?.TPH?.both_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-semibold text-gray-900">Both RP Down</h4>
+                                            <h4 className="font-semibold text-gray-900 text-base">Both RP Down</h4>
                                             <button
                                               onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.both_rp_down?.rampup, "Both RP Down", filteredData[index]?.backendData)}
-                                              className={`p-1 rounded transition-colors ${
+                                              className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
                                                 hasTrendData(filteredData[index].backendData, "Both RP Down")
-                                                  ? "hover:bg-gray-200 text-blue-600"
-                                                  : "text-gray-400 cursor-not-allowed opacity-50"
+                                                  ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                  : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
                                               title={hasTrendData(filteredData[index].backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
                                               disabled={!hasTrendData(filteredData[index].backendData, "Both RP Down")}
                                             >
                                               <svg
-                                                className="w-4 h-4"
+                                                className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                  hasTrendData(filteredData[index].backendData, "Both RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                }`}
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -1862,6 +1899,9 @@ export default function Component() {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
+                                              {hasTrendData(filteredData[index].backendData, "Both RP Down") && (
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                              )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
@@ -1872,7 +1912,7 @@ export default function Component() {
                                                     Object.entries(item).map(([key, value], j: number) => (
                                                       <div key={`both-rp-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">
+                                                        <span className="text-base text-gray-600">
                                                           {highlightNumbers(String(value))}
                                                         </span>
                                                       </div>
@@ -1893,7 +1933,7 @@ export default function Component() {
                                                       .map(([key, value], j) => (
                                                       <div key={`both-rp-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">
+                                                        <span className="text-base text-gray-600">
                                                           {highlightNumbers(String(value ?? ''))}
                                                         </span>
                                                       </div>
@@ -1918,19 +1958,21 @@ export default function Component() {
                                       {filteredData[index]?.backendData?.TPH?.["Reduced Feed Operations"] && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-semibold text-gray-900">Reduced Feed Operations</h4>
+                                            <h4 className="font-semibold text-gray-900 text-base">Reduced Feed Operations</h4>
                                             <button
                                               onClick={() => openPopup(filteredData[index]?.backendData?.TPH?.lowfeed, "Reduced Feed Operations", filteredData[index]?.backendData)}
-                                              className={`p-1 rounded transition-colors ${
+                                              className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
                                                 hasTrendData(filteredData[index].backendData, "Reduced Feed Operations")
-                                                  ? "hover:bg-gray-200 text-blue-600"
-                                                  : "text-gray-400 cursor-not-allowed opacity-50"
+                                                  ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                  : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
                                               title={hasTrendData(filteredData[index].backendData, "Reduced Feed Operations") ? "View trend chart" : "No trend data available"}
                                               disabled={!hasTrendData(filteredData[index].backendData, "Reduced Feed Operations")}
                                             >
                                               <svg
-                                                className="w-4 h-4"
+                                                className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                  hasTrendData(filteredData[index].backendData, "Reduced Feed Operations") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                }`}
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -1942,6 +1984,9 @@ export default function Component() {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
+                                              {hasTrendData(filteredData[index].backendData, "Reduced Feed Operations") && (
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                              )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
@@ -1952,7 +1997,7 @@ export default function Component() {
                                                     Object.entries(item).map(([key, value], j: number) => (
                                                       <div key={`reduced-feed-item-${index}-${i}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">
+                                                        <span className="text-base text-gray-600">
                                                           {highlightNumbers(String(value))}
                                                         </span>
                                                       </div>
@@ -1971,7 +2016,7 @@ export default function Component() {
                                                     Object.entries(filteredData[index].backendData.TPH["Reduced Feed Operations"]).map(([key, value], j: number) => (
                                                       <div key={`reduced-feed-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                        <span className="text-sm text-gray-600">
+                                                        <span className="text-base text-gray-600">
                                                           {highlightNumbers(String(value ?? ''))}
                                                         </span>
                                                       </div>
@@ -2003,15 +2048,15 @@ export default function Component() {
 
                                 <AccordionItem value="idle-running" className="border-b">
                                   <AccordionTrigger className="px-4 py-3 hover:bg-gray-50">
-                                    <span className="text-gray-900 font-bold">Idle Running</span>
+                                    <span className="text-gray-900 font-bold text-base">Idle Running</span>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     {filteredData[index]?.backendData?.idle_running?.cause ? (
-                                      <p className="text-gray-700">
+                                      <p className="text-gray-700 text-base">
                                         {highlightNumbers(filteredData[index].backendData.idle_running.cause)}
                                       </p>
                                     ) : (
-                                      <p className="text-gray-700">
+                                      <p className="text-gray-700 text-base">
                                         No idle running data available.
                                       </p>
                                     )}
@@ -2020,7 +2065,7 @@ export default function Component() {
 
                                 <AccordionItem value="high-power">
                                   <AccordionTrigger className="px-4 py-3 hover:bg-gray-50">
-                                    <span className="text-gray-900 font-bold">High Power</span>
+                                    <span className="text-gray-900 font-bold text-base">High Power</span>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     {filteredData[index]?.backendData?.High_Power ? (
@@ -2028,19 +2073,21 @@ export default function Component() {
                                         {filteredData[index].backendData.High_Power.SKS_FAN && (
                                           <div className="bg-gray-50 rounded-lg p-4">
                                             <div className="flex items-center justify-between mb-2">
-                                              <h4 className="font-semibold text-gray-900">SKS Fan</h4>
+                                              <h4 className="font-semibold text-gray-900 text-base">SKS Fan</h4>
                                               <button
                                                 onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.SKS_FAN, "SKS Fan", filteredData[index]?.backendData)}
-                                                className={`p-1 rounded transition-colors ${
-                                                  hasTrendData(filteredData[index].backendData, "SKS Fan")
-                                                    ? "hover:bg-gray-200 text-blue-600"
-                                                    : "text-gray-400 cursor-not-allowed opacity-50"
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "High_Power")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                                 }`}
-                                                title={hasTrendData(filteredData[index].backendData, "SKS Fan") ? "View trend chart" : "No trend data available"}
-                                                disabled={!hasTrendData(filteredData[index].backendData, "SKS Fan")}
+                                                title={shouldShowTrend(filteredData[index].backendData, "High_Power") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "High_Power")}
                                               >
                                                 <svg
-                                                  className="w-4 h-4"
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "High_Power") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
                                                   fill="none"
                                                   stroke="currentColor"
                                                   viewBox="0 0 24 24"
@@ -2052,10 +2099,13 @@ export default function Component() {
                                                     d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                   />
                                                 </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "High_Power") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
                                               </button>
                                             </div>
                                             {filteredData[index].backendData.High_Power.SKS_FAN.cause && (
-                                              <p className="text-sm text-gray-700 mb-3">
+                                              <p className="text-base text-gray-700 mb-3">
                                                 {highlightNumbers(filteredData[index].backendData.High_Power.SKS_FAN.cause)}
                                               </p>
                                             )}
@@ -2065,7 +2115,7 @@ export default function Component() {
                                                 .map(([key, value], i: number) => (
                                                   <div key={`sks-fan-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                    <span className="text-sm text-gray-600">
+                                                    <span className="text-base text-gray-600">
                                                       {highlightNumbers(String(value ?? ''))}
                                                     </span>
                                                   </div>
@@ -2079,19 +2129,21 @@ export default function Component() {
                                         {filteredData[index].backendData.High_Power.mill_auxiliaries && (
                                           <div className="bg-gray-50 rounded-lg p-4">
                                             <div className="flex items-center justify-between mb-2">
-                                              <h4 className="font-semibold text-gray-900">Mill Auxiliaries</h4>
+                                              <h4 className="font-semibold text-gray-900 text-base">Mill Auxiliaries</h4>
                                               <button
                                                 onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.mill_auxiliaries, "Mill Auxiliaries", filteredData[index]?.backendData)}
-                                                className={`p-1 rounded transition-colors ${
-                                                  hasTrendData(filteredData[index].backendData, "Mill Auxiliaries")
-                                                    ? "hover:bg-gray-200 text-blue-600"
-                                                    : "text-gray-400 cursor-not-allowed opacity-50"
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "Mill Auxiliaries")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                                 }`}
-                                                title={hasTrendData(filteredData[index].backendData, "Mill Auxiliaries") ? "View trend chart" : "No trend data available"}
-                                                disabled={!hasTrendData(filteredData[index].backendData, "Mill Auxiliaries")}
+                                                title={shouldShowTrend(filteredData[index].backendData, "Mill Auxiliaries") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "Mill Auxiliaries")}
                                               >
                                                 <svg
-                                                  className="w-4 h-4"
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "Mill Auxiliaries") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
                                                   fill="none"
                                                   stroke="currentColor"
                                                   viewBox="0 0 24 24"
@@ -2103,10 +2155,13 @@ export default function Component() {
                                                     d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                   />
                                                 </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "Mill Auxiliaries") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
                                               </button>
                                             </div>
                                             {filteredData[index].backendData.High_Power.mill_auxiliaries.cause && (
-                                              <p className="text-sm text-gray-700 mb-3">
+                                              <p className="text-base text-gray-700 mb-3">
                                                 {highlightNumbers(filteredData[index].backendData.High_Power.mill_auxiliaries.cause)}
                                               </p>
                                             )}
@@ -2116,7 +2171,7 @@ export default function Component() {
                                                 .map(([key, value], i: number) => (
                                                   <div key={`mill-aux-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                    <span className="text-sm text-gray-600">
+                                                    <span className="text-base text-gray-600">
                                                       {highlightNumbers(String(value ?? ''))}
                                                     </span>
                                                   </div>
@@ -2130,19 +2185,21 @@ export default function Component() {
                                         {filteredData[index].backendData.High_Power.product_transportation && (
                                           <div className="bg-gray-50 rounded-lg p-4">
                                             <div className="flex items-center justify-between mb-2">
-                                              <h4 className="font-semibold text-gray-900">Product Transportation</h4>
+                                              <h4 className="font-semibold text-gray-900 text-base">Product Transportation</h4>
                                               <button
                                                 onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.product_transportation, "Product Transportation", filteredData[index]?.backendData)}
-                                                className={`p-1 rounded transition-colors ${
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
                                                   hasTrendData(filteredData[index].backendData, "Product Transportation")
-                                                    ? "hover:bg-gray-200 text-blue-600"
-                                                    : "text-gray-400 cursor-not-allowed opacity-50"
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                                 }`}
                                                 title={hasTrendData(filteredData[index].backendData, "Product Transportation") ? "View trend chart" : "No trend data available"}
                                                 disabled={!hasTrendData(filteredData[index].backendData, "Product Transportation")}
                                               >
                                                 <svg
-                                                  className="w-4 h-4"
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    hasTrendData(filteredData[index].backendData, "Product Transportation") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
                                                   fill="none"
                                                   stroke="currentColor"
                                                   viewBox="0 0 24 24"
@@ -2154,10 +2211,13 @@ export default function Component() {
                                                     d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                   />
                                                 </svg>
+                                                {hasTrendData(filteredData[index].backendData, "Product Transportation") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
                                               </button>
                                             </div>
                                             {filteredData[index].backendData.High_Power.product_transportation.cause && (
-                                              <p className="text-sm text-gray-700 mb-3">
+                                              <p className="text-base text-gray-700 mb-3">
                                                 {highlightNumbers(filteredData[index].backendData.High_Power.product_transportation.cause)}
                                               </p>
                                             )}
@@ -2167,7 +2227,7 @@ export default function Component() {
                                                 .map(([key, value], i: number) => (
                                                   <div key={`product-transport-${index}-${i}`} className="flex items-start gap-2">
                                                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
-                                                    <span className="text-sm text-gray-600">
+                                                    <span className="text-base text-gray-600">
                                                       {highlightNumbers(String(value ?? ''))}
                                                     </span>
                                                   </div>
@@ -2233,15 +2293,15 @@ export default function Component() {
                     {/* Show trend chart only if data and device/sensor info is available */}
                     {popupData.data && (
                       <div className="space-y-4">
-                        {/* SKS Fan Trend Chart */}
+                        {/* SKS Fan Trend Chart - Single Graph with Two Lines */}
                         {popupData.section === "SKS Fan" && shouldShowTrend(popupData.backendData, "High_Power") && (
                           <TrendChart
                             deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
-                            sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["sks_fan_sensor_001", "sks_fan_sensor_002"]}
+                            sensorList={getSKSFanSensorList(popupData.backendData)}
                             startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
                             endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
                             title="SKS Fan Trend"
-                            legendNames={extractSensorNames(popupData.backendData, "High_Power")}
+                            legendNames={getSKSFanSensorNames(popupData.backendData)}
                             targetValue={(() => {
                               // Extract target value from SKS_FAN section
                               const sksFanData = popupData.backendData?.High_Power?.SKS_FAN;
@@ -2256,7 +2316,7 @@ export default function Component() {
                         )}
                         
                         {/* Mill Auxiliaries Trend Chart */}
-                        {popupData.section === "Mill Auxiliaries" && shouldShowTrend(popupData.backendData, "High_Power") && (
+                        {popupData.section === "Mill Auxiliaries" && shouldShowTrend(popupData.backendData, "Mill Auxiliaries") && (
                           <TrendChart
                             deviceId={extractDeviceId(popupData.backendData) || "ABBRWML_A1"}
                             sensorList={extractSensorIds(popupData.backendData, "High_Power") || ["mill_aux_sensor_001", "mill_aux_sensor_002"]}
@@ -2402,7 +2462,7 @@ export default function Component() {
                         {popupData.data && (
                           <div className="space-y-4">
                             {/* TPH Trend Chart for all TPH subsections */}
-                            {["Reduced Feed Operations", "One RP Down", "Both RP Down"].includes(popupData.section) && popupData.backendData?.TPH?.sensor && popupData.backendData?.TPH?.Device && (
+                            {["Reduced Feed Operations", "Single RP Down", "One RP Down", "Both RP Down"].includes(popupData.section) && popupData.backendData?.TPH?.sensor && popupData.backendData?.TPH?.Device && (
                               <TrendChart
                                 deviceId={popupData.backendData.TPH.Device}
                                 sensorList={Object.keys(popupData.backendData.TPH.sensor)}
@@ -2429,12 +2489,26 @@ export default function Component() {
                                         
                                         // For Single RP Down, color based on scenario
                                         let eventColor = undefined;
-                                        if (popupData.section === "One RP Down" && item.scenario) {
+                                        if ((popupData.section === "Single RP Down" || popupData.section === "One RP Down") && item && item.scenario) {
                                           if (item.scenario.includes("RP1")) {
                                             eventColor = "#FF6B6B"; // Red for RP1
                                           } else if (item.scenario.includes("RP2")) {
                                             eventColor = "#4ECDC4"; // Teal for RP2
                                           }
+                                        }
+                                        
+                                        // For Reduced Feed Operations, color based on RPs Running
+                                        if (popupData.section === "Reduced Feed Operations" && item && item.pumps_running !== undefined) {
+                                          if (item.pumps_running === 2) {
+                                            eventColor = "#FFD700"; // Yellow for Both RPs
+                                          } else if (item.pumps_running === 1) {
+                                            eventColor = "#ED1C24"; // Red for Single RP
+                                          }
+                                        }
+                                        
+                                        // For Both RP Down, all events are red
+                                        if (popupData.section === "Both RP Down") {
+                                          eventColor = "#ED1C24"; // Red for Both RP Down events
                                         }
                                         
                                         return {
@@ -2446,7 +2520,7 @@ export default function Component() {
                                     : undefined
                                 }
                                 legendNames={
-                                  popupData.section === "One RP Down" || popupData.section === "Both RP Down"
+                                  popupData.section === "Single RP Down" || popupData.section === "One RP Down" || popupData.section === "Both RP Down"
                                     ? {
                                         normal: "Raw mill feed rate",
                                         event: "Ramp-up event"
@@ -2478,9 +2552,9 @@ export default function Component() {
       {/* Maintenance Popup Modal */}
       {maintenancePopup.isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg">
+          <div className="bg-white w-full max-w-7xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">TPH Maintenance Events</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Raw mill Stoppages Events</h3>
               <button onClick={closeMaintenancePopup} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -2499,9 +2573,6 @@ export default function Component() {
                           <TableRow>
                             <TableHead className="px-4 py-2 text-left border-b">Start Date Time</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b">End Date Time</TableHead>
-                            <TableHead className="px-4 py-2 text-left border-b max-w-[180px] truncate cursor-pointer" title={maintenancePopup.rp1[0]["Event Details"]}>
-                              Event Details
-                            </TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Department</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Stoppage Category</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp1[0]["Reason of Stoppage"]}>
@@ -2515,19 +2586,19 @@ export default function Component() {
                             <TableRow key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["Start Date Time"])}</TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["End Date Time"])}</TableCell>
-                              <TableCell
-                                className="px-4 py-3 align-top border-b max-w-[180px] truncate cursor-pointer"
-                                title={item["Event Details"]}
-                              >
-                                {item["Event Details"]}
-                              </TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Department"]}</TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Stoppage Category"]}</TableCell>
                               <TableCell
                                 className="px-4 py-3 align-top border-b max-w-[140px] truncate cursor-pointer"
-                                title={item["Reason of Stoppage"]}
+                                title={item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
+                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
+                                  : item["Reason of Stoppage"]
+                                }
                               >
-                                {item["Reason of Stoppage"]}
+                                {item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
+                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
+                                  : item["Reason of Stoppage"]
+                                }
                               </TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Calculated Duration (H:M)"]}</TableCell>
                             </TableRow>
@@ -2547,9 +2618,6 @@ export default function Component() {
                           <TableRow>
                             <TableHead className="px-4 py-2 text-left border-b">Start Date Time</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b">End Date Time</TableHead>
-                            <TableHead className="px-4 py-2 text-left border-b max-w-[180px] truncate cursor-pointer" title={maintenancePopup.rp2[0]["Event Details"]}>
-                              Event Details
-                            </TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Department</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Stoppage Category</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp2[0]["Reason of Stoppage"]}>
@@ -2563,19 +2631,19 @@ export default function Component() {
                             <TableRow key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["Start Date Time"])}</TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["End Date Time"])}</TableCell>
-                              <TableCell
-                                className="px-4 py-3 align-top border-b max-w-[180px] truncate cursor-pointer"
-                                title={item["Event Details"]}
-                              >
-                                {item["Event Details"]}
-                              </TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Department"]}</TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Stoppage Category"]}</TableCell>
                               <TableCell
                                 className="px-4 py-3 align-top border-b max-w-[140px] truncate cursor-pointer"
-                                title={item["Reason of Stoppage"]}
+                                title={item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
+                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
+                                  : item["Reason of Stoppage"]
+                                }
                               >
-                                {item["Reason of Stoppage"]}
+                                {item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
+                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
+                                  : item["Reason of Stoppage"]
+                                }
                               </TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Calculated Duration (H:M)"]}</TableCell>
                             </TableRow>
