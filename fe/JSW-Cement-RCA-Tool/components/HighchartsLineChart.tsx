@@ -737,16 +737,23 @@ export default function HighchartsLineChart({
       gridLineDashStyle: 'Dash'
     },
     tooltip: {
+      shared: true,
       formatter: function(this: any) {
         const timestamp = formatTimestamp(this.x);
         let tooltip = `<b>${timestamp}</b><br/>`;
-        
-        this.points?.forEach((point: any) => {
-          if (point.series.visible) {
-            tooltip += `<span style="color: ${point.color}">●</span> ${point.series.name}: <b>${point.y}</b><br/>`;
-          }
-        });
-        
+        if (this.points) {
+          this.points.forEach((point: any) => {
+            if (point.series.visible) {
+              // Replace the dot with a small square styled inline
+              const roundedY = point.y !== undefined ? Number(point.y).toFixed(2) : '';
+              tooltip += `<span style="display:inline-block;width:8px;height:8px;background:${point.color};margin-right:4px;border-radius:2px;vertical-align:middle;"></span> ${point.series.name}: <b>${roundedY}</b> Feed Rate<br/>`;
+            }
+          });
+        } else if (this.y !== undefined) {
+          // Single point hover fallback
+          const roundedY = Number(this.y).toFixed(2);
+          tooltip += `<b>Feed Rate: ${roundedY}</b>`;
+        }
         return tooltip;
       },
       backgroundColor: 'white',
@@ -773,6 +780,11 @@ export default function HighchartsLineChart({
         connectNulls: false
       },
       series: {
+        states: {
+          inactive: {
+            opacity: 1 // Prevent dimming of non-active series
+          }
+        },
         events: {
           legendItemClick: function(this: any, e: any) {
             e.preventDefault();

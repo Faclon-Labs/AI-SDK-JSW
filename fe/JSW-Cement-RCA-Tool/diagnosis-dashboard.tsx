@@ -1375,7 +1375,7 @@ export default function Component() {
       {/* Header */}
       <div className="bg-white border-b px-6 py-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-900">Automatic Diagnosis and Recommendation Dashboard</h1>
+          <h1 className="text-xl font-semibold text-gray-900">RCA Insights Dashboard</h1>
         </div>
       </div>
 
@@ -1545,7 +1545,7 @@ export default function Component() {
                     onClick={() => handleSort('daySPC')}
                   >
                     <div className="flex items-center gap-1">
-                      Date SPC
+                      SPC
                       {sortConfig?.key === 'daySPC' && (
                         <span className="text-blue-600">
                           {sortConfig.direction === 'asc' ? '↑' : '↓'}
@@ -1685,7 +1685,7 @@ export default function Component() {
 
                               <Card className="bg-white">
                                 <CardHeader className="pb-1 px-3 pt-2">
-                                  <CardTitle className="text-sm font-medium text-gray-600">Date SPC</CardTitle>
+                                  <CardTitle className="text-sm font-medium text-gray-600">SPC</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0 px-3 pb-2">
                                   <div className="text-2xl font-bold text-gray-900">
@@ -1758,7 +1758,7 @@ export default function Component() {
                                       </svg>
                                     </div>
                                     <Button
-                                      className="ml-auto relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-yellow-100 hover:text-yellow-700 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-3 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                      className="ml-auto relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
                                       onClick={e => {
                                         e.stopPropagation();
                                         openMaintenancePopup(sortedData[index]?.backendData);
@@ -1771,8 +1771,10 @@ export default function Component() {
                                       }
                                       title="View maintenance events for RP1 and RP2"
                                     >
-                                      <Wrench className="w-4 h-4 text-yellow-700 transition-all duration-300 ease-in-out group-hover:rotate-12 group-hover:scale-110 group-hover:text-yellow-800 relative z-10" />
-                                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                                      <span className="inline-flex items-center gap-1">
+                                        stoppages <Wrench className="w-3 h-3 inline-block align-middle text-yellow-800" />
+                                      </span>
+                                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                                     </Button>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
@@ -2554,7 +2556,9 @@ export default function Component() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white w-full max-w-7xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Raw mill Stoppages Events</h3>
+              <h3 className="text-base font-semibold text-gray-900 flex items-center gap-1">
+                stoppages <Wrench className="w-4 h-4 inline-block align-middle text-yellow-800" />
+              </h3>
               <button onClick={closeMaintenancePopup} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -2575,7 +2579,7 @@ export default function Component() {
                             <TableHead className="px-4 py-2 text-left border-b">End Date Time</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Department</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Stoppage Category</TableHead>
-                            <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp1[0]["Reason of Stoppage"]}>
+                            <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp1[0]?.["Reason of Stoppage"]}>
                               Reason of Stoppage
                             </TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Calculated Duration (H:M)</TableHead>
@@ -2590,14 +2594,14 @@ export default function Component() {
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Stoppage Category"]}</TableCell>
                               <TableCell
                                 className="px-4 py-3 align-top border-b max-w-[140px] truncate cursor-pointer"
-                                title={item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
-                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
-                                  : item["Reason of Stoppage"]
+                                title={item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"] || {}).length > 0 
+                                  ? `${item["Reason of Stoppage"] ?? ''} - ${item["Other Reason of stoppage"] ?? ''}`
+                                  : item["Reason of Stoppage"] ?? ''
                                 }
                               >
-                                {item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
-                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
-                                  : item["Reason of Stoppage"]
+                                {item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"] || {}).length > 0 
+                                  ? `${item["Reason of Stoppage"] ?? ''} - ${item["Other Reason of stoppage"] ?? ''}`
+                                  : item["Reason of Stoppage"] ?? ''
                                 }
                               </TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Calculated Duration (H:M)"]}</TableCell>
@@ -2620,7 +2624,7 @@ export default function Component() {
                             <TableHead className="px-4 py-2 text-left border-b">End Date Time</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Department</TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Stoppage Category</TableHead>
-                            <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp2[0]["Reason of Stoppage"]}>
+                            <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.rp2[0]?.["Reason of Stoppage"]}>
                               Reason of Stoppage
                             </TableHead>
                             <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Calculated Duration (H:M)</TableHead>
@@ -2635,14 +2639,14 @@ export default function Component() {
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Stoppage Category"]}</TableCell>
                               <TableCell
                                 className="px-4 py-3 align-top border-b max-w-[140px] truncate cursor-pointer"
-                                title={item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
-                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
-                                  : item["Reason of Stoppage"]
+                                title={item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"] || {}).length > 0 
+                                  ? `${item["Reason of Stoppage"] ?? ''} - ${item["Other Reason of stoppage"] ?? ''}`
+                                  : item["Reason of Stoppage"] ?? ''
                                 }
                               >
-                                {item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"]).length > 0 
-                                  ? `${item["Reason of Stoppage"]} - ${item["Other Reason of stoppage"]}`
-                                  : item["Reason of Stoppage"]
+                                {item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"] || {}).length > 0 
+                                  ? `${item["Reason of Stoppage"] ?? ''} - ${item["Other Reason of stoppage"] ?? ''}`
+                                  : item["Reason of Stoppage"] ?? ''
                                 }
                               </TableCell>
                               <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Calculated Duration (H:M)"]}</TableCell>
