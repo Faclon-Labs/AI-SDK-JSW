@@ -150,6 +150,7 @@ export default function Component() {
   // Pass the selected time range to the hook
   const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
   const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "normal" | "all">("all")
+  const [selectedSection, setSelectedSection] = useState<string>("all")
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [sortConfig, setSortConfig] = useState<{
     key: string;
@@ -164,6 +165,66 @@ export default function Component() {
 
   // Format range for display (dates only, no times)
   const displayRange = `${selectedRange.startDate} - ${selectedRange.endDate}`;
+
+  // Extract available sections from the actual data structure
+  const getAvailableSections = () => {
+    const sections = new Set<string>();
+    diagnosticData.forEach(item => {
+      // Check if item has result data with sections (like "Raw Mill", "Cement Mill 1")
+      if (item.result && typeof item.result === 'object') {
+        Object.keys(item.result).forEach(section => {
+          sections.add(section);
+        });
+      }
+      // Also check resultName as fallback
+      if (item.resultName) {
+        sections.add(item.resultName);
+      }
+      // Also check millName as fallback
+      if (item.millName) {
+        sections.add(item.millName);
+      }
+    });
+    return Array.from(sections).sort();
+  };
+
+  const availableSections = getAvailableSections();
+  
+  // Helper function to check if an item belongs to a specific section
+  const itemBelongsToSection = (item: any, sectionName: string) => {
+    // Primary check: Check if the item has the section in its result object
+    if (item.result && typeof item.result === 'object' && Object.keys(item.result).includes(sectionName)) {
+      return true;
+    }
+    // Secondary check: Check if the item's resultName matches the section
+    if (item.resultName === sectionName) {
+      return true;
+    }
+    // Tertiary check: Check if the item's millName matches the section
+    if (item.millName === sectionName) {
+      return true;
+    }
+    return false;
+  };
+
+  // Debug: Log available sections and data structure
+  console.log('Available Sections:', availableSections);
+  console.log('Diagnostic Data Structure:', diagnosticData.map(item => ({
+    millName: item.millName,
+    resultName: item.resultName,
+    resultKeys: item.result ? Object.keys(item.result) : [],
+    hasResult: !!item.result,
+    resultType: typeof item.result
+  })));
+  
+  // Test section filter logic
+  if (diagnosticData.length > 0) {
+    console.log('Testing section filter logic:');
+    availableSections.forEach(section => {
+      const matchingItems = diagnosticData.filter(item => itemBelongsToSection(item, section));
+      console.log(`Section "${section}": ${matchingItems.length} items`);
+    });
+  }
 
   // Function to get preset name based on current selection
   const getPresetName = (range: TimeRange): string => {
@@ -312,6 +373,37 @@ export default function Component() {
       return allSensors.length > 0 ? allSensors : null;
     }
     
+    // Special handling for High Power subsections (RP1, RP2, etc.)
+    if (["RP1", "RP2", "Product Transportation MCC15_SPC", "580SR1 VFD (580FN1+580SR1)_SPC", "OPC Mill Feeding_SPC", "Product Transportation_SPC"].includes(section)) {
+      const highPowerData = data?.High_Power;
+      if (!highPowerData) return null;
+      
+      // Map section names to their actual keys in the data
+      const sectionKeyMap: Record<string, string> = {
+        "RP1": "rp1",
+        "RP2": "rp2",
+        "Product Transportation MCC15_SPC": "Product Transportation MCC15_SPC",
+        "580SR1 VFD (580FN1+580SR1)_SPC": "580SR1 VFD (580FN1+580SR1)_SPC",
+        "OPC Mill Feeding_SPC": "OPC Mill Feeding_SPC",
+        "Product Transportation_SPC": "Product Transportation_SPC"
+      };
+      
+      const actualKey = sectionKeyMap[section];
+      const subsectionData = highPowerData[actualKey];
+      
+      if (subsectionData && subsectionData.sensor) {
+        if (Array.isArray(subsectionData.sensor)) {
+          return subsectionData.sensor;
+        } else if (typeof subsectionData.sensor === 'object') {
+          return Object.keys(subsectionData.sensor);
+        } else {
+          return [subsectionData.sensor];
+        }
+      }
+      
+      return null;
+    }
+    
     // Look for sensor data in the specific section
     const sectionData = data[section];
     if (!sectionData) return null;
@@ -428,12 +520,36 @@ export default function Component() {
       case "Single RP Down":
       case "One RP Down":
         sectionData = data?.TPH?.one_rp_down?.rampup;
+        // For TPH sections, also check if sensor and device data is available
+        if (!sectionData || (Array.isArray(sectionData) && sectionData.length === 0)) {
+          // If no rampup data, check if TPH has sensor and device data
+          const tphData = data?.TPH;
+          if (tphData && tphData.sensor && tphData.Device) {
+            return true; // Enable trend if TPH has sensor and device data
+          }
+        }
         break;
       case "Both RP Down":
         sectionData = data?.TPH?.both_rp_down;
+        // For TPH sections, also check if sensor and device data is available
+        if (!sectionData || (Array.isArray(sectionData) && sectionData.length === 0)) {
+          // If no both_rp_down data, check if TPH has sensor and device data
+          const tphData = data?.TPH;
+          if (tphData && tphData.sensor && tphData.Device) {
+            return true; // Enable trend if TPH has sensor and device data
+          }
+        }
         break;
       case "Reduced Feed Operations":
         sectionData = data?.TPH?.lowfeed;
+        // For TPH sections, also check if sensor and device data is available
+        if (!sectionData || (Array.isArray(sectionData) && sectionData.length === 0)) {
+          // If no lowfeed data, check if TPH has sensor and device data
+          const tphData = data?.TPH;
+          if (tphData && tphData.sensor && tphData.Device) {
+            return true; // Enable trend if TPH has sensor and device data
+          }
+        }
         break;
       case "SKS Fan":
         sectionData = data?.High_Power?.SKS_FAN;
@@ -443,6 +559,27 @@ export default function Component() {
         break;
       case "Product Transportation":
         sectionData = data?.High_Power?.product_transportation;
+        break;
+      case "Quality Table":
+        sectionData = data?.Qulity?.table;
+        break;
+      case "RP1":
+        sectionData = data?.High_Power?.rp1;
+        break;
+      case "RP2":
+        sectionData = data?.High_Power?.rp2;
+        break;
+      case "Product Transportation MCC15_SPC":
+        sectionData = data?.High_Power?.["Product Transportation MCC15_SPC"];
+        break;
+      case "580SR1 VFD (580FN1+580SR1)_SPC":
+        sectionData = data?.High_Power?.["580SR1 VFD (580FN1+580SR1)_SPC"];
+        break;
+      case "OPC Mill Feeding_SPC":
+        sectionData = data?.High_Power?.["OPC Mill Feeding_SPC"];
+        break;
+      case "Product Transportation_SPC":
+        sectionData = data?.High_Power?.["Product Transportation_SPC"];
         break;
       default:
         return false;
@@ -1321,6 +1458,19 @@ export default function Component() {
     // Apply status filter
     const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter;
     
+      // Apply section filter
+  const sectionMatch = selectedSection === "all" || itemBelongsToSection(item, selectedSection);
+  
+  // Debug logging for section filtering
+  if (selectedSection !== "all") {
+    console.log(`Filtering item for section "${selectedSection}":`, {
+      itemSection: item.resultName,
+      itemResultKeys: item.result ? Object.keys(item.result) : [],
+      belongsToSection: itemBelongsToSection(item, selectedSection),
+      sectionMatch
+    });
+  }
+    
     // Apply date range filter based on global time picker
     const itemDate = new Date(item.timestamp);
     const startDate = new Date(selectedRange.startDate);
@@ -1332,7 +1482,7 @@ export default function Component() {
     
     const dateMatch = itemDate >= startDate && itemDate <= endDate;
     
-    return statusMatch && dateMatch;
+    return statusMatch && sectionMatch && dateMatch;
   })
 
   // Apply sorting to filtered data
@@ -1382,19 +1532,36 @@ export default function Component() {
       {/* Controls Section */}
       <div className="px-6 py-4 bg-white border-b">
         <div className="flex items-center gap-4 mb-4">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2 bg-transparent">
-                Raw Mill
-                <ChevronDown className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem>Raw Mill</DropdownMenuItem>
-              <DropdownMenuItem>Cement Mill</DropdownMenuItem>
-              <DropdownMenuItem>Coal Mill</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                      <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  className={`gap-2 ${selectedSection !== "all" ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-transparent"}`}
+                >
+                  {selectedSection === "all" ? "All Sections" : selectedSection}
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => {
+                  console.log('Selected section: All Sections');
+                  setSelectedSection("all");
+                }}>
+                  All Sections
+                </DropdownMenuItem>
+                {availableSections.map((section) => (
+                  <DropdownMenuItem 
+                    key={section} 
+                    onClick={() => {
+                      console.log('Selected section:', section);
+                      setSelectedSection(section);
+                    }}
+                  >
+                    {section}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
           {/* Replace DropdownMenu for date range with Duration button and popover */}
           <Popover open={timePickerOpen} onOpenChange={setTimePickerOpen}>
@@ -1434,6 +1601,13 @@ export default function Component() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Filter Status Indicator */}
+          <div className="text-sm text-gray-600 mr-2">
+            Filter: <span className="font-semibold">{selectedFilter === "all" ? "All" : selectedFilter.charAt(0).toUpperCase() + selectedFilter.slice(1)}</span>
+            <span className="ml-2">Section: <span className="font-semibold">{selectedSection === "all" ? "All Sections" : selectedSection}</span></span>
+            <span className="ml-2">({filteredData.length} of {diagnosticData.length} records)</span>
+          </div>
+          
           <div
             onClick={() => setSelectedFilter(selectedFilter === "high" ? "all" : "high")}
             className={`cursor-pointer px-4 py-2 rounded-full text-sm font-medium transition-all ${
@@ -1475,6 +1649,19 @@ export default function Component() {
           >
             Normal ({diagnosticData.filter((item) => item.status.toLowerCase() === "normal").length})
           </div>
+          
+          {/* Clear Filters Button */}
+          {(selectedFilter !== "all" || selectedSection !== "all") && (
+            <button
+              onClick={() => {
+                setSelectedFilter("all");
+                setSelectedSection("all");
+              }}
+              className="ml-2 px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300 transition-all"
+            >
+              Clear Filters
+            </button>
+          )}
         </div>
       </div>
 
@@ -1743,7 +1930,7 @@ export default function Component() {
                               <Accordion
                                 type="multiple"
                                 className="w-full"
-                                defaultValue={["lower-output", "idle-running", "high-power"]}
+                                defaultValue={["lower-output", "idle-running", "high-power", "quality"]}
                               >
                                 <AccordionItem value="lower-output" className="border-b">
                                   <AccordionTrigger className="px-4 py-3 hover:bg-gray-50 flex items-center justify-between">
@@ -2184,6 +2371,342 @@ export default function Component() {
 
                                           </div>
                                         )}
+                                        {/* RP1 Section */}
+                                        {filteredData[index].backendData.High_Power.rp1 && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <h4 className="font-semibold text-gray-900 text-base">RP1</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.rp1, "RP1", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "RP1")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={shouldShowTrend(filteredData[index].backendData, "RP1") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "RP1")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "RP1") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "RP1") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            {filteredData[index].backendData.High_Power.rp1.cause && (
+                                              <p className="text-base text-gray-700 mb-3">
+                                                {highlightNumbers(filteredData[index].backendData.High_Power.rp1.cause)}
+                                              </p>
+                                            )}
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.High_Power.rp1)
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`rp1-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* RP2 Section */}
+                                        {filteredData[index].backendData.High_Power.rp2 && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <h4 className="font-semibold text-gray-900 text-base">RP2</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.rp2, "RP2", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "RP2")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={shouldShowTrend(filteredData[index].backendData, "RP2") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "RP2")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "RP2") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "RP2") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            {filteredData[index].backendData.High_Power.rp2.cause && (
+                                              <p className="text-base text-gray-700 mb-3">
+                                                {highlightNumbers(filteredData[index].backendData.High_Power.rp2.cause)}
+                                              </p>
+                                            )}
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.High_Power.rp2)
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`rp2-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Product Transportation MCC15_SPC Section */}
+                                        {filteredData[index].backendData.High_Power["Product Transportation MCC15_SPC"] && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <h4 className="font-semibold text-gray-900 text-base">Product Transportation MCC15_SPC</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.["Product Transportation MCC15_SPC"], "Product Transportation MCC15_SPC", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "Product Transportation MCC15_SPC")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={shouldShowTrend(filteredData[index].backendData, "Product Transportation MCC15_SPC") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "Product Transportation MCC15_SPC")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "Product Transportation MCC15_SPC") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "Product Transportation MCC15_SPC") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            {filteredData[index].backendData.High_Power["Product Transportation MCC15_SPC"].cause && (
+                                              <p className="text-base text-gray-700 mb-3">
+                                                {highlightNumbers(filteredData[index].backendData.High_Power["Product Transportation MCC15_SPC"].cause)}
+                                              </p>
+                                            )}
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.High_Power["Product Transportation MCC15_SPC"])
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`product-transport-mcc15-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 580SR1 VFD (580FN1+580SR1)_SPC Section */}
+                                        {filteredData[index].backendData.High_Power["580SR1 VFD (580FN1+580SR1)_SPC"] && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <h4 className="font-semibold text-gray-900 text-base">580SR1 VFD (580FN1+580SR1)_SPC</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.["580SR1 VFD (580FN1+580SR1)_SPC"], "580SR1 VFD (580FN1+580SR1)_SPC", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "580SR1 VFD (580FN1+580SR1)_SPC")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={shouldShowTrend(filteredData[index].backendData, "580SR1 VFD (580FN1+580SR1)_SPC") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "580SR1 VFD (580FN1+580SR1)_SPC")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "580SR1 VFD (580FN1+580SR1)_SPC") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "580SR1 VFD (580FN1+580SR1)_SPC") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            {filteredData[index].backendData.High_Power["580SR1 VFD (580FN1+580SR1)_SPC"].cause && (
+                                              <p className="text-base text-gray-700 mb-3">
+                                                {highlightNumbers(filteredData[index].backendData.High_Power["580SR1 VFD (580FN1+580SR1)_SPC"].cause)}
+                                              </p>
+                                            )}
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.High_Power["580SR1 VFD (580FN1+580SR1)_SPC"])
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`580sr1-vfd-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* OPC Mill Feeding_SPC Section */}
+                                        {filteredData[index].backendData.High_Power["OPC Mill Feeding_SPC"] && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <h4 className="font-semibold text-gray-900 text-base">OPC Mill Feeding_SPC</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.["OPC Mill Feeding_SPC"], "OPC Mill Feeding_SPC", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "OPC Mill Feeding_SPC")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={shouldShowTrend(filteredData[index].backendData, "OPC Mill Feeding_SPC") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "OPC Mill Feeding_SPC")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "OPC Mill Feeding_SPC") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "OPC Mill Feeding_SPC") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            {filteredData[index].backendData.High_Power["OPC Mill Feeding_SPC"].cause && (
+                                              <p className="text-base text-gray-700 mb-3">
+                                                {highlightNumbers(filteredData[index].backendData.High_Power["OPC Mill Feeding_SPC"].cause)}
+                                              </p>
+                                            )}
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.High_Power["OPC Mill Feeding_SPC"])
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`opc-mill-feeding-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Product Transportation_SPC Section */}
+                                        {filteredData[index].backendData.High_Power["Product Transportation_SPC"] && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <h4 className="font-semibold text-gray-900 text-base">Product Transportation_SPC</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.High_Power?.["Product Transportation_SPC"], "Product Transportation_SPC", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  shouldShowTrend(filteredData[index].backendData, "Product Transportation_SPC")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={shouldShowTrend(filteredData[index].backendData, "Product Transportation_SPC") ? "View trend chart" : "No trend data available"}
+                                                disabled={!shouldShowTrend(filteredData[index].backendData, "Product Transportation_SPC")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    shouldShowTrend(filteredData[index].backendData, "Product Transportation_SPC") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {shouldShowTrend(filteredData[index].backendData, "Product Transportation_SPC") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            {filteredData[index].backendData.High_Power["Product Transportation_SPC"].cause && (
+                                              <p className="text-base text-gray-700 mb-3">
+                                                {highlightNumbers(filteredData[index].backendData.High_Power["Product Transportation_SPC"].cause)}
+                                              </p>
+                                            )}
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.High_Power["Product Transportation_SPC"])
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`product-transport-spc-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
                                         {filteredData[index].backendData.High_Power.product_transportation && (
                                           <div className="bg-gray-50 rounded-lg p-4">
                                             <div className="flex items-center justify-between mb-2">
@@ -2236,14 +2759,129 @@ export default function Component() {
                                                 ))
                                               }
                                             </div>
-                                            
-
                                           </div>
                                         )}
                                       </div>
                                     ) : (
                                       <p className="text-gray-700">
                                         No high power data available.
+                                      </p>
+                                    )}
+                                  </AccordionContent>
+                                </AccordionItem>
+
+                                <AccordionItem value="quality">
+                                  <AccordionTrigger className="px-4 py-3 hover:bg-gray-50">
+                                    <span className="text-gray-900 font-bold text-base">Quality</span>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="px-4 pb-4">
+                                    {filteredData[index]?.backendData?.Qulity ? (
+                                      <div className="space-y-4">
+                                        {/* 45 Micron Subsection */}
+                                        {filteredData[index].backendData.Qulity?.["45_"] && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                              <h4 className="font-semibold text-gray-900 text-base">45 Micron</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.Qulity?.table, "Quality Table", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  hasTrendData(filteredData[index].backendData, "Quality Table")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={hasTrendData(filteredData[index].backendData, "Quality Table") ? "View trend chart" : "No trend data available"}
+                                                disabled={!hasTrendData(filteredData[index].backendData, "Quality Table")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    hasTrendData(filteredData[index].backendData, "Quality Table") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {hasTrendData(filteredData[index].backendData, "Quality Table") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.Qulity["45_"] || {})
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`45-micron-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Blaine Subsection */}
+                                        {filteredData[index].backendData.Qulity?.["Blaine_"] && (
+                                          <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                              <h4 className="font-semibold text-gray-900 text-base">Blaine</h4>
+                                              <button
+                                                onClick={() => openPopup(filteredData[index]?.backendData?.Qulity?.table, "Quality Table", filteredData[index]?.backendData)}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  hasTrendData(filteredData[index].backendData, "Quality Table")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={hasTrendData(filteredData[index].backendData, "Quality Table") ? "View trend chart" : "No trend data available"}
+                                                disabled={!hasTrendData(filteredData[index].backendData, "Quality Table")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    hasTrendData(filteredData[index].backendData, "Quality Table") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {hasTrendData(filteredData[index].backendData, "Quality Table") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
+                                            <div className="space-y-2">
+                                              {Object.entries(filteredData[index].backendData.Qulity["Blaine_"] || {})
+                                                .filter(([key, value]) => !isNaN(Number(key)) && typeof value === 'string')
+                                                .map(([key, value], i: number) => (
+                                                  <div key={`blaine-${index}-${i}`} className="flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                    <span className="text-base text-gray-600">
+                                                      {highlightNumbers(String(value ?? ''))}
+                                                    </span>
+                                                  </div>
+                                                ))
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <p className="text-gray-700">
+                                        No quality data available.
                                       </p>
                                     )}
                                   </AccordionContent>
@@ -2391,6 +3029,12 @@ export default function Component() {
                                     <TableHead className="w-[120px]">Minimum TPH</TableHead>
                                     <TableHead className="w-[120px]">Maximum TPH</TableHead>
                                   </>
+                                ) : popupData.section === "Quality Table" ? (
+                                  <>
+                                    <TableHead className="w-[200px]">Time</TableHead>
+                                    <TableHead className="w-[150px]">45 Mic 12% (D22)</TableHead>
+                                    <TableHead className="w-[150px]">BLAINE (M2/Kg) (D6)</TableHead>
+                                  </>
                                 ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && popupData.data.length > 0 && popupData.data[0].scenario ? (
                                   <>
                                     <TableHead className="w-[200px]">Scenario</TableHead>
@@ -2422,6 +3066,12 @@ export default function Component() {
                                       <TableCell>{formatNumber(item.avg_tph)}</TableCell>
                                       <TableCell>{formatNumber(item.min_tph)}</TableCell>
                                       <TableCell>{formatNumber(item.max_tph)}</TableCell>
+                                    </>
+                                  ) : popupData.section === "Quality Table" ? (
+                                    <>
+                                      <TableCell>{formatTime(item.time)}</TableCell>
+                                      <TableCell>{formatNumber(item["45 Mic 12% (D22)"])}</TableCell>
+                                      <TableCell>{formatNumber(item["BLAINE (M2/Kg) (D6)"])}</TableCell>
                                     </>
                                   ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && item.scenario ? (
                                     <>
@@ -2475,6 +3125,17 @@ export default function Component() {
                                   // Extract target value directly from TPH section
                                   const targetValue = popupData.backendData?.TPH?.target;
                                   return targetValue ? parseFloat(targetValue) : undefined;
+                                })()}
+                                legendNames={(() => {
+                                  // Create legend names using sensor names instead of IDs for TPH sections
+                                  const sensorNames: Record<string, string> = {};
+                                  if (popupData.backendData?.TPH?.sensor) {
+                                    // Use the sensor names from the TPH payload
+                                    for (const [sensorId, sensorName] of Object.entries(popupData.backendData.TPH.sensor)) {
+                                      sensorNames[sensorId] = sensorName as string;
+                                    }
+                                  }
+                                  return sensorNames;
                                 })()}
                                 events={
                                   popupData.data && Array.isArray(popupData.data) 
@@ -2534,6 +3195,40 @@ export default function Component() {
                                         }
                                     : undefined
                                 }
+                              />
+                            )}
+                            
+                            {/* High Power Trend Chart for High Power subsections */}
+                            {["RP1", "RP2", "Product Transportation MCC15_SPC", "580SR1 VFD (580FN1+580SR1)_SPC", "OPC Mill Feeding_SPC", "Product Transportation_SPC"].includes(popupData.section) && popupData.data && popupData.data.sensor && popupData.data.Device && (
+                              <TrendChart
+                                deviceId={popupData.data.Device}
+                                sensorList={Object.keys(popupData.data.sensor)}
+                                startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                                endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                                title={`${popupData.section} Trend`}
+                                targetValue={(() => {
+                                  // Extract target values from the specific High Power subsection
+                                  if (popupData.data && popupData.data.Target) {
+                                    // For sections with multiple targets, use the first one
+                                    const targetKeys = Object.keys(popupData.data.Target);
+                                    if (targetKeys.length > 0) {
+                                      return parseFloat(popupData.data.Target[targetKeys[0]]);
+                                    }
+                                  }
+                                  return undefined;
+                                })()}
+                                events={undefined}
+                                legendNames={(() => {
+                                  // Create legend names using sensor names instead of IDs
+                                  const sensorNames: Record<string, string> = {};
+                                  if (popupData.data && popupData.data.sensor) {
+                                    // Use the sensor names from the payload
+                                    for (const [sensorId, sensorName] of Object.entries(popupData.data.sensor)) {
+                                      sensorNames[sensorId] = sensorName as string;
+                                    }
+                                  }
+                                  return sensorNames;
+                                })()}
                               />
                             )}
                             

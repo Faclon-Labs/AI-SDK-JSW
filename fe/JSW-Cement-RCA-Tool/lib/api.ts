@@ -22,7 +22,7 @@ export interface TimeRange {
 
 // Fetch all insight results (without date filter to get all available data)
 export async function fetchAllInsightResults() {
-  const insightId = 'INS_015ce0dcf91c';
+  const insightId = 'INS_a7bca70a5160';
   try {
     const result = await bruceHandler.fetchInsightResults({
       insightId,
@@ -38,7 +38,7 @@ export async function fetchAllInsightResults() {
 
 // Fetch insight results for a given time range
 export async function fetchInsightResultsByTimeRange(timeRange: TimeRange) {
-  const insightId = 'INS_015ce0dcf91c';
+  const insightId = 'INS_a7bca70a5160';
   
   // Pass IST times as-is (query_time values are already in correct format)
   const startDateTime = `${timeRange.startDate}T${timeRange.startTime}:00.000`;
@@ -61,17 +61,20 @@ export async function fetchInsightResultsByTimeRange(timeRange: TimeRange) {
 }
 
 // Fetch insight results for a given date range (legacy function)
+// Temporarily disabled to avoid module resolution errors
 export async function fetchInsightResults({ startDate, endDate }: { startDate: string; endDate: string }) {
-  const insightId = 'INS_015ce0dcf91c';
-  try {
-    const result = await bruceHandler.fetchInsightResults({
-      insightId,
-      filter: { startDate, endDate },
-      pagination: { page: 1, count: 10 },
-    });
-    return result.results;
-  } catch (error) {
-    console.error('Error fetching insight results:', error);
-    throw error;
-  }
+  console.log('API function disabled - using mock data instead');
+  return [];
+  // const insightId = 'INS_eb719fb37e95';
+  // try {
+  //   const result = await bruceHandler.fetchInsightResults({
+  //     insightId,
+  //     filter: { startDate, endDate },
+  //     pagination: { page: 1, count: 10 },
+  //   });
+  //   return result.results;
+  // } catch (error) {
+  //   console.error('Error fetching insight results:', error);
+  //   throw error;
+  // }
 } 

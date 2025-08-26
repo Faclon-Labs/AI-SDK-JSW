@@ -1,0 +1,14 @@
+{
+  "name": "ai-sdk-jsw",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AI SDK for JSW Cement RCA Tool",
+  "main": "test-simple.js",
+  "scripts": {
+    "test": "node test-simple.js",
+    "dev": "cd fe/JSW-Cement-RCA-Tool && npm run dev"
+  },
+  "dependencies": {
+    "connector-userid-ts": "file:./connector-userid-ts"
+  }
+}
