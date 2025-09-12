@@ -17,6 +17,7 @@ interface TrendChartProps {
   }>;
   legendNames?: Record<string, string>; // Add this line
   targetValue?: number; // Add target value prop
+  isCementMillTPH?: boolean; // Add prop to identify cement mill TPH sections
 }
 
 interface DataPoint {
@@ -32,7 +33,7 @@ interface EventRange {
   label: string;
 }
 
-export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events, legendNames, targetValue }: TrendChartProps) {
+export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events, legendNames, targetValue, isCementMillTPH = false }: TrendChartProps) {
   const [data, setData] = useState<DataPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,8 +42,14 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   const eventColor = '#ED1C24'; // Single color for all events
   const normalColor = '#3263fc'; // Color for normal data (raw mill feed rate)
 
-  // Check if this is the TPH section (contains D49 and D5 sensors)
+  // Check if this is the TPH section (contains D49 and D5 sensors for Raw Mill)
   const isTPHSection = sensorList.includes('D49') && sensorList.includes('D5');
+  
+  // Check if this is Cement Mill TPH section (contains D26 sensor or is a TPH section with legendNames)
+  const isCementMillTPHSection = sensorList.includes('D26') || (title.toLowerCase().includes('tph') && legendNames && Object.keys(legendNames).length > 0);
+  
+  // Check if this is Quality section (contains quality-related sensors)
+  const isQualitySection = title.toLowerCase().includes('quality');
   
   // Check if this is a High Power section (has multiple sensors with names)
   // Also include Reduced Feed Operations sections to avoid duplicate legend entries
@@ -59,21 +66,6 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   // Check if this is the Raw Mill Feed Rate section (only D49 and D5)
   const isRawMillFeedRateSection = sensorList.length === 2 && sensorList.includes('D49') && sensorList.includes('D5');
 
-  // Debug: Log the parameters
-  useEffect(() => {
-    console.log('TrendChart Parameters:', {
-      deviceId,
-      sensorList,
-      startTime,
-      endTime,
-      title,
-      isTPHSection,
-      isSKSFanSection,
-      isSKSFanFromTitle,
-      isRawMillFeedRateSection,
-      events
-    });
-  }, [deviceId, sensorList, startTime, endTime, title, isTPHSection, isSKSFanSection, isSKSFanFromTitle, isRawMillFeedRateSection, events]);
 
   useEffect(() => {
     const fetchTrendData = async () => {
@@ -81,12 +73,6 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
       setError(null);
 
       try {
-        console.log('Fetching trend data with params:', {
-          deviceId,
-          sensorList,
-          startTime,
-          endTime,
-        });
 
         const response = await fetch('/jsw-rca-new/api/trend', {
           method: 'POST',
@@ -106,12 +92,11 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
         }
 
         const result = await response.json();
-        console.log('Trend API Response:', result);
         
         if (result.success) {
           let processedData = result.data;
           
-          // Special processing for TPH section
+          // Special processing for Raw Mill TPH section (D49 - D5 calculation)
           if (isTPHSection) {
             processedData = result.data.map((point: DataPoint) => {
               const d49Value = parseFloat(point.D49 || '0');
@@ -124,6 +109,37 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
                 ...point,
                 'Raw mill feed rate': finalValue
               };
+            });
+          }
+          
+          // Special processing for Cement Mill TPH section (same format as raw mill)
+          if (isCementMillTPH || isCementMillTPHSection) {
+            processedData = result.data.map((point: DataPoint) => {
+              // For cement mill TPH, use the first sensor value as the main feed rate
+              // This matches the raw mill approach where we calculate D49 - D5
+              const firstSensorId = sensorList[0];
+              const sensorValue = parseFloat(point[firstSensorId] || '0');
+              
+              return {
+                ...point,
+                'Cement mill feed rate': sensorValue
+              };
+            });
+          }
+          
+          // Special processing for Quality section (multiple quality sensors)
+          if (isQualitySection) {
+            processedData = result.data.map((point: DataPoint) => {
+              const processedPoint: any = { ...point };
+              
+              // Process each sensor in the sensor list
+              sensorList.forEach((sensorId, index) => {
+                const sensorValue = parseFloat(point[sensorId] || '0');
+                const legendName = legendNames?.[sensorId] || `Quality Area ${index + 1}`;
+                processedPoint[legendName] = sensorValue;
+              });
+              
+              return processedPoint;
             });
           }
           
@@ -173,15 +189,8 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
 
     if (deviceId && sensorList.length > 0 && startTime && endTime) {
       fetchTrendData();
-    } else {
-      console.log('TrendChart: Missing required parameters', {
-        deviceId: !!deviceId,
-        sensorListLength: sensorList?.length,
-        startTime: !!startTime,
-        endTime: !!endTime
-      });
     }
-  }, [deviceId, sensorList, startTime, endTime, isTPHSection, isSKSFanSection, isSKSFanFromTitle, isRawMillFeedRateSection]);
+  }, [deviceId, sensorList, startTime, endTime, isTPHSection, isCementMillTPH, isCementMillTPHSection, isQualitySection, isSKSFanSection, isSKSFanFromTitle, isRawMillFeedRateSection]);
 
   if (loading) {
     return (
@@ -236,13 +245,19 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
     }
   } else if (isTPHSection) {
     displaySensors = ['Raw mill feed rate'];
+  } else if (isCementMillTPH || isCementMillTPHSection) {
+    // For cement mill TPH, use the same naming convention as raw mill
+    displaySensors = ['Cement mill feed rate'];
+  } else if (isQualitySection) {
+    // For Quality section, use the legend names or default sensor names
+    displaySensors = legendNames ? Object.keys(legendNames) : sensorList;
   } else if (isRawMillFeedRateSection) {
     displaySensors = ['Raw mill feed rate'];
   } else {
     displaySensors = sensorList;
   }
 
-  // Assign colors: D209 = blue, Raw mill feed rate = yellow in SKS Fan section, blue in other sections
+  // Assign colors: D209 = blue, Raw mill feed rate = yellow in SKS Fan section, blue in other sections, Cement mill feed rate = blue
   const getLineColor = (sensor: string, index: number) => {
     if (sensor === 'D209') return '#3263fc'; // blue for SKS Fan Speed
     if (sensor === 'Raw mill feed rate') {
@@ -253,6 +268,8 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
         return '#3263fc'; // blue for other sections
       }
     }
+    if (sensor === 'Cement mill feed rate') return '#3263fc'; // blue for Cement Mill (same as raw mill)
+    if (sensor.startsWith('Quality Area')) return colors[index % colors.length]; // different colors for each quality area
     return colors[index % colors.length];
   };
 
@@ -295,6 +312,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
         targetValue={targetValue}
         isHighPowerSection={true}
         eventType={eventType}
+        isCementMillTPH={isCementMillTPH}
         events={events}
       />
     );
@@ -308,6 +326,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
       eventRanges={eventRanges}
       targetValue={targetValue}
       eventType={eventType}
+      isCementMillTPH={isCementMillTPH}
       events={events}
     />
   );
