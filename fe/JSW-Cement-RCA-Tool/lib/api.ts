@@ -13,9 +13,7 @@ const BACKEND_CONFIG = {
 let bruceHandler: BruceHandler | null = null;
 
 try {
-  console.log('Initializing BruceHandler with config:', BACKEND_CONFIG);
   bruceHandler = new BruceHandler(BACKEND_CONFIG);
-  console.log('BruceHandler initialized successfully');
 } catch (error) {
   console.error('Failed to initialize BruceHandler:', error);
 }
@@ -35,7 +33,6 @@ export async function fetchAllInsightResults() {
   }
 
   const insightId = 'INS_a7bca70a5160';
-  console.log('Fetching all insight results for insight ID:', insightId);
   
   try {
     const result = await bruceHandler.fetchInsightResults({
@@ -43,8 +40,6 @@ export async function fetchAllInsightResults() {
       filter: {}, // No date filter to get all results
       pagination: { page: 1, count: 50 }, // Get more results
     });
-    console.log('API response:', result);
-    console.log('Number of results returned:', result.results?.length || 0);
     return result.results;
   } catch (error) {
     console.error('Error fetching insight results:', error);
