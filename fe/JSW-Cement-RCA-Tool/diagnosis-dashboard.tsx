@@ -468,7 +468,7 @@ const getHighPowerSubsections = (millType: string) => {
     }
     
     // Special handling for TPH subsections
-    if (["Reduced Feed Operations", "Single RP Down", "One RP Down", "Both RP Down"].includes(section)) {
+    if (["Reduced Feed Operations", "Single RP Down", "One RP Down", "Both RP Down", "Ball Mill"].includes(section)) {
       // For TPH subsections, prioritize TPH-specific device ID and sensor data
       const tphData = data?.TPH;
       const tphDeviceId = tphData?.Device || deviceId;
@@ -555,6 +555,9 @@ const getHighPowerSubsections = (millType: string) => {
         break;
       case "Reduced Feed Operations":
         sectionData = data?.TPH?.lowfeed;
+        break;
+      case "Ball Mill":
+        sectionData = data?.TPH?.ball_mill;
         break;
       case "SKS Fan":
         sectionData = data?.High_Power?.SKS_FAN;
@@ -859,6 +862,15 @@ const getHighPowerSubsections = (millType: string) => {
               });
             }
             
+            if (tph.ball_mill && typeof tph.ball_mill === 'object') {
+              tphItems.push('Ball Mill Analysis:');
+              Object.entries(tph.ball_mill).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  tphItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
             if (tphItems.length > 0) {
               sections.push({
                 title: 'TPH Analysis',
@@ -1133,7 +1145,8 @@ const getHighPowerSubsections = (millType: string) => {
         'Target TPH',
         'Cause',
         'Both RP Down Duration',
-        'Reduced Feed Duration'
+        'Reduced Feed Duration',
+        'Ball Mill Duration'
       ];
       tphData.push(tphHeaders);
 
@@ -1147,7 +1160,8 @@ const getHighPowerSubsections = (millType: string) => {
             formatNumber((tph as any).target),
             (tph as any).cause || 'N/A',
             (tph as any).both_rp_down?.[1] || 'N/A',
-            (tph as any)["Reduced Feed Operations"]?.[1] || 'N/A'
+            (tph as any)["Reduced Feed Operations"]?.[1] || 'N/A',
+            (tph as any).ball_mill?.[1] || 'N/A'
           ]);
         }
       });
@@ -1439,7 +1453,6 @@ const getHighPowerSubsections = (millType: string) => {
   }
 
   if (error) {
-    console.log('Showing error state...');
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center text-red-600">
@@ -2195,6 +2208,89 @@ const getHighPowerSubsections = (millType: string) => {
                                           </div>
                                           
                                           
+                                        </div>
+                                      )}
+
+                                      {/* Ball Mill Section */}
+                                      {sortedData[index]?.backendData?.TPH?.ball_mill && (
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                          <div className="flex items-center justify-between mb-3">
+                                            <h4 className="font-semibold text-gray-900 text-base">Ball Mill</h4>
+                                            <button
+                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.ball_mill, "Ball Mill", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName})}
+                                              className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                hasTrendData(sortedData[index].backendData, "Ball Mill")
+                                                  ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                  : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                              }`}
+                                              title={hasTrendData(sortedData[index].backendData, "Ball Mill") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(sortedData[index].backendData, "Ball Mill")}
+                                            >
+                                              <svg
+                                                className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                  hasTrendData(sortedData[index].backendData, "Ball Mill") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                }`}
+                                                fill="none"
+                                                stroke="currentColor"
+                                                viewBox="0 0 24 24"
+                                              >
+                                                <path
+                                                  strokeLinecap="round"
+                                                  strokeLinejoin="round"
+                                                  strokeWidth={2}
+                                                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                />
+                                              </svg>
+                                              {hasTrendData(sortedData[index].backendData, "Ball Mill") && (
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                              )}
+                                            </button>
+                                          </div>
+                                          <div className="space-y-2">
+                                            {Array.isArray(sortedData[index].backendData.TPH.ball_mill) ? 
+                                              sortedData[index].backendData.TPH.ball_mill.map((item: any, i: number) => (
+                                                <div key={`ball-mill-${index}-${i}`} className="space-y-1">
+                                                  {typeof item === 'object' ? 
+                                                    Object.entries(item).map(([key, value], j: number) => (
+                                                      <div key={`ball-mill-item-${index}-${i}-${j}`} className="flex items-start gap-2">
+                                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                        <span className="text-base text-gray-600">
+                                                          {highlightNumbers(String(value))}
+                                                        </span>
+                                                      </div>
+                                                    ))
+                                                    : (
+                                                      <div className="flex items-start gap-2">
+                                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                        <span className="text-sm text-gray-600">{highlightNumbers(item)}</span>
+                                                      </div>
+                                                    )
+                                                  }
+                                                </div>
+                                              )) : (
+                                                <div className="space-y-1">
+                                                  {typeof sortedData[index].backendData.TPH.ball_mill === 'object' ? 
+                                                    Object.entries(sortedData[index].backendData.TPH.ball_mill).map(([key, value], j: number) => (
+                                                      <div key={`ball-mill-single-${index}-${j}`} className="flex items-start gap-2">
+                                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                        <span className="text-base text-gray-600">
+                                                          {highlightNumbers(String(value ?? ''))}
+                                                        </span>
+                                                      </div>
+                                                    ))
+                                                    : (
+                                                      <div className="flex items-start gap-2">
+                                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                        <span className="text-sm text-gray-600">
+                                                          {highlightNumbers(String(sortedData[index].backendData.TPH.ball_mill))}
+                                                        </span>
+                                                      </div>
+                                                    )
+                                                  }
+                                                </div>
+                                              )
+                                            }
+                                          </div>
                                         </div>
                                       )}
 

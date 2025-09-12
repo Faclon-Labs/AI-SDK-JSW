@@ -201,7 +201,7 @@ export function useDiagnosticData(timeRange?: TimeRange) {
         setError('Request timed out. Please check your connection and try again.');
         setLoading(false);
       }
-    }, 30000); // 30 second timeout
+    }, 60000); // 60 second timeout
 
     async function fetchAndTransformData() {
       setLoading(true);
@@ -221,19 +221,10 @@ export function useDiagnosticData(timeRange?: TimeRange) {
         // Transform backend data into frontend format - create separate entries for each section
         const transformedData: DiagnosticData[] = [];
         
-        console.log('Raw results from API:', results);
-        console.log('Number of results:', results.length);
-        console.log('Results type:', typeof results);
-        console.log('Is array:', Array.isArray(results));
-        
         // Check if results might be nested
         if (results && typeof results === 'object' && !Array.isArray(results)) {
-          console.log('Results is an object, checking for nested data...');
-          console.log('Results keys:', Object.keys(results));
           if ('data' in (results as any)) {
-            console.log('Found data property in results:', (results as any).data);
             if (Array.isArray((results as any).data)) {
-              console.log('Data is an array with length:', (results as any).data.length);
               results = (results as any).data; // Use the nested data
             }
           }
