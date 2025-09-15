@@ -198,10 +198,10 @@ export function useDiagnosticData(timeRange?: TimeRange) {
     // Add timeout to prevent infinite loading
     const timeoutId = setTimeout(() => {
       if (loading) {
-        setError('Request timed out. Please check your connection and try again.');
+        setError('Request timed out after 2 minutes. The external API may be slow. Please try again or check your network connection.');
         setLoading(false);
       }
-    }, 60000); // 60 second timeout
+    }, 120000); // 120 second timeout (2 minutes)
 
     async function fetchAndTransformData() {
       setLoading(true);

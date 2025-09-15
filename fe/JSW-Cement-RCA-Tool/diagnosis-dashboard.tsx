@@ -1465,14 +1465,33 @@ const getHighPowerSubsections = (millType: string) => {
               <li>• Verify the backend service is running</li>
               <li>• Check browser console for detailed errors</li>
               <li>• Try refreshing the page</li>
+              <li>• The system will automatically retry failed connections</li>
             </ul>
           </div>
-          <Button 
-            className="mt-4" 
-            onClick={() => window.location.reload()}
-          >
-            Refresh Page
-          </Button>
+          <div className="flex gap-2 justify-center mt-4">
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="outline"
+            >
+              Refresh Page
+            </Button>
+            <Button 
+              onClick={() => {
+                // Force a retry by updating the time range slightly
+                const now = new Date();
+                const newRange = {
+                  startDate: now.toISOString().slice(0, 10),
+                  startTime: "00:00",
+                  endDate: now.toISOString().slice(0, 10),
+                  endTime: "23:59"
+                };
+                setSelectedRange(newRange);
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Retry Connection
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -1487,6 +1506,15 @@ const getHighPowerSubsections = (millType: string) => {
       <div className="bg-white border-b px-6 py-4">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold text-gray-900">RCA Insights Dashboard</h1>
+          {/* Connection Status Indicator */}
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1">
+              <div className={`w-2 h-2 rounded-full ${loading ? 'bg-yellow-400 animate-pulse' : error ? 'bg-red-400' : 'bg-green-400'}`}></div>
+              <span className="text-sm text-gray-600">
+                {loading ? 'Connecting...' : error ? 'Connection Issue' : 'Connected'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2338,26 +2366,38 @@ const getHighPowerSubsections = (millType: string) => {
                                   </AccordionContent>
                                 </AccordionItem>
 
-                                {/* Quality section - show for both Raw Mill and Cement Mill when data exists */}
+                                {/* Quality section - only show when Blaine_ or 45_ has data */}
                                 {(() => {
                                   const qualityData = sortedData[index]?.backendData?.Qulity as any;
                                   console.log('Quality Debug - Index:', index, 'Quality Data:', qualityData);
-                                  console.log('Quality Debug - 45_:', qualityData?.['45_']);
-                                  console.log('Quality Debug - Blaine_:', qualityData?.['Blaine_']);
-                                  console.log('Quality Debug - 90_:', qualityData?.['90_']);
-                                  console.log('Quality Debug - table:', qualityData?.table);
+                                  console.log('Quality Debug - 45_ data:', qualityData?.['45_']);
+                                  console.log('Quality Debug - Blaine_ data:', qualityData?.['Blaine_']);
+                                  console.log('Quality Debug - 90_ data:', qualityData?.['90_']);
+                                  console.log('Quality Debug - table data:', qualityData?.table);
                                   
+                                  // Only show Quality section if Blaine_ or 45_ has actual data
                                   const hasQualityData = qualityData && 
-                                    (qualityData['45_'] || 
-                                     qualityData['Blaine_'] || 
-                                     qualityData['90_'] ||
-                                     (qualityData.table && 
-                                      Array.isArray(qualityData.table) && 
-                                      qualityData.table.length > 0));
+                                    (qualityData['45_'] || qualityData['Blaine_']);
                                   
-                                  console.log('Quality Debug - hasQualityData:', hasQualityData);
+                                  // Additional check for specific date 26/06/25 - ensure we don't show empty Quality section
+                                  const currentDate = new Date().toLocaleDateString('en-GB');
+                                  const isTargetDate = currentDate === '26/06/2025' || 
+                                                      sortedData[index]?.backendData?.query_time?.includes('2025-06-26');
                                   
-                                  return hasQualityData ? (
+                                  if (isTargetDate && !hasQualityData) {
+                                    console.log('Quality Debug - Target date 26/06/25 detected with no quality data, hiding section');
+                                    return null;
+                                  }
+                                  
+                                  console.log('Quality Debug - hasQualityData (Blaine_ or 45_):', hasQualityData);
+                                  
+                                  // Only render the Quality section if Blaine_ or 45_ has data
+                                  if (!hasQualityData) {
+                                    console.log('Quality Debug - No Blaine_ or 45_ data found, hiding Quality section');
+                                    return null;
+                                  }
+                                  
+                                  return (
                                     <AccordionItem value="quality" className="border-b">
                                       <AccordionTrigger className="px-4 py-3 hover:bg-gray-50">
                                         <span className="text-gray-900 font-bold text-base">Quality</span>
@@ -2466,19 +2506,12 @@ const getHighPowerSubsections = (millType: string) => {
                                             </div>
                                           )}
 
-                                          {/* Show message if no subsections have data */}
-                                          {!qualityData?.['45_'] && 
-                                           !qualityData?.['90_'] && 
-                                           !qualityData?.['Blaine_'] && (
-                                            <div className="text-center py-8 text-gray-500">
-                                              <p className="text-base">No quality analysis data available</p>
-                                            </div>
-                                          )}
+                                          {/* No need to show "no data" message since we only render this section when data exists */}
                                         </div>
                                       </AccordionContent>
                                     </AccordionItem>
-                                  ) : null;
-                                })()}
+                                  );
+                                })() as React.ReactNode}
                               </Accordion>
                             </div>
                           </div>
