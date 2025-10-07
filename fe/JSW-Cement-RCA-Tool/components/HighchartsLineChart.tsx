@@ -360,7 +360,7 @@ export default function HighchartsLineChart({
             if (eventGroup.length > 0) {
               series.push({
                 type: 'line',
-                name: isCementMillTPH ? 'RP2 Stoppages' : 'RP2 Ramp Events', // Same name for legend grouping
+                name: isCementMillTPH ? 'RP2 Stoppages' : (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events'), // Same name for legend grouping
                 color: '#ED1C24',
                 data: eventGroup,
                 visible: !hidden.rp2_events,
@@ -668,7 +668,7 @@ export default function HighchartsLineChart({
             if (eventGroup.length > 0) {
               series.push({
                 type: 'line',
-                name: isCementMillTPH ? 'RP2 Stoppages' : 'RP2 Ramp Events', // Same name for legend grouping
+                name: isCementMillTPH ? 'RP2 Stoppages' : (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events'), // Same name for legend grouping
                 color: '#ED1C24',
                 data: eventGroup,
                 visible: !hidden.rp2_events,
