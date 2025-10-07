@@ -30,6 +30,7 @@ interface HighchartsLineChartProps {
     endTime: string;
     color?: string;
   }>; // Add individual events with colors
+  isDualAxis?: boolean; // Add prop for dual-axis plotting
 }
 
 export default function HighchartsLineChart({ 
@@ -41,7 +42,8 @@ export default function HighchartsLineChart({
   isHighPowerSection = false,
   eventType = 'general',
   isCementMillTPH = false,
-  events = []
+  events = [],
+  isDualAxis = false
 }: HighchartsLineChartProps) {
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
 
@@ -105,22 +107,38 @@ export default function HighchartsLineChart({
         }];
       } else {
         // For other High Power sections, create series for each sensor line
-        series = lines.map(line => ({
-          type: 'line',
-          name: line.name,
-          color: line.color,
-          data: data.map(point => [point.timestamp, parseFloat(point[line.key] || '0')]),
-          visible: !hidden[line.name], // Use line.name instead of line.key for consistency
-          lineWidth: 2,
-          marker: {
-            enabled: false
-          },
-          states: {
-            hover: {
-              lineWidth: 3
+        series = lines.map((line, index) => {
+          const seriesConfig: any = {
+            type: 'line',
+            name: line.name,
+            color: line.color,
+            data: data.map(point => [point.timestamp, parseFloat(point[line.key] || '0')]),
+            visible: !hidden[line.name], // Use line.name instead of line.key for consistency
+            lineWidth: 2,
+            marker: {
+              enabled: false
+            },
+            states: {
+              hover: {
+                lineWidth: 3
+              }
+            }
+          };
+          
+          // For dual-axis plotting (PHF and Klin Main Drive sections), assign yAxis based on sensor type
+          if (isDualAxis) {
+            // Klin Feed (D63) goes on left axis (yAxis: 0)
+            // PH Fan sensors (D18, D19) and Klin RPM (D16) go on right axis (yAxis: 1)
+            if (line.name.includes('Klin Feed') || line.key.includes('D63')) {
+              seriesConfig.yAxis = 0;
+            } else if (line.name.includes('PH Fan') || line.key.includes('D18') || line.key.includes('D19') || 
+                       line.name.includes('Klin RPM') || line.key.includes('D16')) {
+              seriesConfig.yAxis = 1;
             }
           }
-        }));
+          
+          return seriesConfig;
+        });
       }
 
       // Add event highlighting series
@@ -751,7 +769,43 @@ export default function HighchartsLineChart({
       gridLineWidth: 1,
       gridLineColor: '#e5e7eb'
     },
-    yAxis: {
+    yAxis: isDualAxis ? [
+      {
+        // Left axis for Klin Feed
+        title: {
+          text: 'Klin Feed (TPH)',
+          style: {
+            color: '#3263fc'
+          }
+        },
+        labels: {
+          style: {
+            fontSize: '12px',
+            color: '#3263fc'
+          }
+        },
+        gridLineColor: '#e5e7eb',
+        gridLineDashStyle: 'Dash'
+      },
+      {
+        // Right axis for PH Fan Power or Klin RPM
+        title: {
+          text: title.toLowerCase().includes('klin main drive') ? 'Klin RPM' : 'PH Fan Power (kW)',
+          style: {
+            color: '#ff8d13'
+          }
+        },
+        labels: {
+          style: {
+            fontSize: '12px',
+            color: '#ff8d13'
+          }
+        },
+        opposite: true,
+        gridLineColor: '#e5e7eb',
+        gridLineDashStyle: 'Dash'
+      }
+    ] : {
       title: {
         text: ''
       },
@@ -773,7 +827,22 @@ export default function HighchartsLineChart({
             if (point.series.visible) {
               // Replace the dot with a small square styled inline
               const roundedY = point.y !== undefined ? Number(point.y).toFixed(2) : '';
-              tooltip += `<span style="display:inline-block;width:8px;height:8px;background:${point.color};margin-right:4px;border-radius:2px;vertical-align:middle;"></span> ${point.series.name}: <b>${roundedY}</b> Feed Rate<br/>`;
+              let unit = '';
+              
+              // Add appropriate units for dual-axis charts
+              if (isDualAxis) {
+                if (point.series.name.includes('Klin Feed') || point.series.name.includes('D63')) {
+                  unit = ' TPH';
+                } else if (point.series.name.includes('PH Fan') || point.series.name.includes('D18') || point.series.name.includes('D19')) {
+                  unit = ' kW';
+                } else if (point.series.name.includes('Klin RPM') || point.series.name.includes('D16')) {
+                  unit = ' RPM';
+                }
+              } else {
+                unit = ' Feed Rate';
+              }
+              
+              tooltip += `<span style="display:inline-block;width:8px;height:8px;background:${point.color};margin-right:4px;border-radius:2px;vertical-align:middle;"></span> ${point.series.name}: <b>${roundedY}${unit}</b><br/>`;
             }
           });
         } else if (this.y !== undefined) {

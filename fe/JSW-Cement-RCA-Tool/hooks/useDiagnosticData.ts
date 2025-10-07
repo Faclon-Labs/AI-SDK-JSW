@@ -53,6 +53,86 @@ interface CustomInsightResult {
           [key: string]: any;
         };
       };
+      klin?: {
+        cause?: string;
+        target?: number;
+        sensor?: {
+          [key: string]: any;
+        };
+        table?: any[];
+        TPH?: {
+          sudden_drop?: {
+            [key: string]: string;
+          };
+          events?: Array<{
+            start: string;
+            end: string;
+            duration_min: number;
+            min_value: number;
+            day_mean: number;
+            drop_percent: number;
+          }>;
+          sensor?: {
+            [key: string]: string;
+          };
+          Device?: string;
+          target?: number;
+        };
+        High_Power?: {
+          [key: string]: {
+            cause?: string;
+          };
+        };
+        SPC?: {
+          target?: number;
+          today?: number;
+          deviation?: number;
+          Impact?: string;
+        };
+        detected_issue?: string;
+        query_time?: string[];
+        [key: string]: any;
+      };
+      Kiln?: {
+        cause?: string;
+        target?: number;
+        sensor?: {
+          [key: string]: any;
+        };
+        table?: any[];
+        TPH?: {
+          sudden_drop?: {
+            [key: string]: string;
+          };
+          events?: Array<{
+            start: string;
+            end: string;
+            duration_min: number;
+            min_value: number;
+            day_mean: number;
+            drop_percent: number;
+          }>;
+          sensor?: {
+            [key: string]: string;
+          };
+          Device?: string;
+          target?: number;
+        };
+        High_Power?: {
+          [key: string]: {
+            cause?: string;
+          };
+        };
+        SPC?: {
+          target?: number;
+          today?: number;
+          deviation?: number;
+          Impact?: string;
+        };
+        detected_issue?: string;
+        query_time?: string[];
+        [key: string]: any;
+      };
       [key: string]: any;
     };
   };
@@ -124,6 +204,86 @@ interface DiagnosticData {
       "Blaine_"?: {
         [key: string]: any;
       };
+    };
+    klin?: {
+      cause?: string;
+      target?: number;
+      sensor?: {
+        [key: string]: any;
+      };
+      table?: any[];
+      TPH?: {
+        sudden_drop?: {
+          [key: string]: string;
+        };
+        events?: Array<{
+          start: string;
+          end: string;
+          duration_min: number;
+          min_value: number;
+          day_mean: number;
+          drop_percent: number;
+        }>;
+        sensor?: {
+          [key: string]: string;
+        };
+        Device?: string;
+        target?: number;
+      };
+      High_Power?: {
+        [key: string]: {
+          cause?: string;
+        };
+      };
+      SPC?: {
+        target?: number;
+        today?: number;
+        deviation?: number;
+        Impact?: string;
+      };
+      detected_issue?: string;
+      query_time?: string[];
+      [key: string]: any;
+    };
+    Kiln?: {
+      cause?: string;
+      target?: number;
+      sensor?: {
+        [key: string]: any;
+      };
+      table?: any[];
+      TPH?: {
+        sudden_drop?: {
+          [key: string]: string;
+        };
+        events?: Array<{
+          start: string;
+          end: string;
+          duration_min: number;
+          min_value: number;
+          day_mean: number;
+          drop_percent: number;
+        }>;
+        sensor?: {
+          [key: string]: string;
+        };
+        Device?: string;
+        target?: number;
+      };
+      High_Power?: {
+        [key: string]: {
+          cause?: string;
+        };
+      };
+      SPC?: {
+        target?: number;
+        today?: number;
+        deviation?: number;
+        Impact?: string;
+      };
+      detected_issue?: string;
+      query_time?: string[];
+      [key: string]: any;
     };
     [key: string]: any;
   };

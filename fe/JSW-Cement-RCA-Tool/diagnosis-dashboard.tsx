@@ -120,31 +120,49 @@ export default function Component() {
   
   // Add state for time picker modal and range
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const startOfYear = new Date(now.getFullYear(), 0, 1); // January 1st of current year
+  const endOfYear = new Date(now.getFullYear(), 11, 31); // December 31st of current year
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [selectedRange, setSelectedRange] = useState<TimeRange>({
-    startDate: startOfMonth.toISOString().slice(0, 10),
+    startDate: startOfYear.toISOString().slice(0, 10),
     startTime: "00:00",
-    endDate: endOfMonth.toISOString().slice(0, 10),
+    endDate: endOfYear.toISOString().slice(0, 10),
     endTime: "23:59",
   });
 
   // Add state for maintenance popup
-  const [maintenancePopup, setMaintenancePopup] = useState<{isOpen: boolean, activeTab: 'RP1' | 'RP2', rp1: any[], rp2: any[]}>({
+  const [maintenancePopup, setMaintenancePopup] = useState<{isOpen: boolean, activeTab: 'RP1' | 'RP2' | 'Klin', rp1: any[], rp2: any[], klin: any[]}>({
     isOpen: false,
     activeTab: 'RP1',
     rp1: [],
-    rp2: []
+    rp2: [],
+    klin: []
   });
 
   // Function to open maintenance popup
-  const openMaintenancePopup = (backendData: any) => {
+  const openMaintenancePopup = (backendData: any, defaultTab: 'RP1' | 'RP2' | 'Klin' = 'RP1') => {
+    const klinData = backendData?.klin_maintance || [];
+    const rp1Data = backendData?.TPH?.RP1_maintance || [];
+    const rp2Data = backendData?.TPH?.RP2_maintance || [];
+    
+    // Determine the default tab based on available data
+    let activeTab = defaultTab;
+    if (defaultTab === 'Klin' && klinData.length > 0) {
+      activeTab = 'Klin';
+    } else if (klinData.length > 0 && rp1Data.length === 0 && rp2Data.length === 0) {
+      activeTab = 'Klin';
+    } else if (rp1Data.length > 0) {
+      activeTab = 'RP1';
+    } else if (rp2Data.length > 0) {
+      activeTab = 'RP2';
+    }
+    
     setMaintenancePopup({
       isOpen: true,
-      activeTab: 'RP1',
-      rp1: backendData?.TPH?.RP1_maintance || [],
-      rp2: backendData?.TPH?.RP2_maintance || []
+      activeTab,
+      rp1: rp1Data,
+      rp2: rp2Data,
+      klin: klinData
     });
   };
   const closeMaintenancePopup = () => setMaintenancePopup({ ...maintenancePopup, isOpen: false });
@@ -181,6 +199,13 @@ const getHighPowerSubsections = (millType: string) => {
         "580SR1 VFD (580FN1+580SR1)_SPC",
         "OPC Mill Feeding_SPC",
         "Product Transportation_SPC"
+      ];
+    case "Klin":
+      return [
+        "phf1",
+        "phf2",
+        "Klin_main_drive_1",
+        "Klin_main_drive_2"
       ];
     case "Raw Mill":
     default:
@@ -285,12 +310,12 @@ const getHighPowerSubsections = (millType: string) => {
         for (const [key, value] of Object.entries(obj)) {
           // Look for device-related keys
           if (key.toLowerCase().includes('device') || key.toLowerCase().includes('deviceid')) {
-            if (typeof value === 'string' && value.includes('ABBRWML')) {
+            if (typeof value === 'string' && (value.includes('ABBRWML') || value.includes('ABBBHPH') || value.includes('ABBKLN'))) {
               return value;
             }
           }
-          // Look for ABBRWML strings anywhere
-          if (typeof value === 'string' && value.includes('ABBRWML')) {
+          // Look for ABBRWML, ABBBHPH, or ABBKLN strings anywhere
+          if (typeof value === 'string' && (value.includes('ABBRWML') || value.includes('ABBBHPH') || value.includes('ABBKLN'))) {
             return value;
           }
           // Recursively search nested objects
@@ -409,7 +434,7 @@ const getHighPowerSubsections = (millType: string) => {
     }
     
     // Special handling for High Power subsections
-    if (["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "OPC Mill Feeding", "Pre Process"].includes(section)) {
+    if (["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "OPC Mill Feeding", "Pre Process", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Klin Main Drive 1", "Klin Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(section)) {
       // For High Power subsections, check if the specific subsection has sensor data
       let subsectionData = null;
       let subsectionKey = "";
@@ -446,6 +471,26 @@ const getHighPowerSubsections = (millType: string) => {
         case "Pre Process":
           subsectionData = data?.High_Power?.pre_process;
           subsectionKey = "pre_process";
+          break;
+        case "PHF1":
+        case "Preheater Fan 1":
+          subsectionData = data?.High_Power?.phf1;
+          subsectionKey = "phf1";
+          break;
+        case "PHF2":
+        case "Preheater Fan 2":
+          subsectionData = data?.High_Power?.phf2;
+          subsectionKey = "phf2";
+          break;
+        case "Klin Main Drive 1":
+        case "Klin_main_drive_1":
+          subsectionData = data?.High_Power?.Klin_main_drive_1;
+          subsectionKey = "Klin_main_drive_1";
+          break;
+        case "Klin Main Drive 2":
+        case "Klin_main_drive_2":
+          subsectionData = data?.High_Power?.Klin_main_drive_2;
+          subsectionKey = "Klin_main_drive_2";
           break;
       }
       
@@ -556,6 +601,9 @@ const getHighPowerSubsections = (millType: string) => {
       case "Reduced Feed Operations":
         sectionData = data?.TPH?.lowfeed;
         break;
+      case "TPH Events":
+        // For TPH Events, check if we have TPH data with Device and sensor info
+        return data?.TPH?.Device && data?.TPH?.sensor;
       case "Ball Mill":
         sectionData = data?.TPH?.ball_mill;
         break;
@@ -568,6 +616,22 @@ const getHighPowerSubsections = (millType: string) => {
       case "Product Transportation":
         sectionData = data?.High_Power?.product_transportation;
         break;
+      case "PHF1":
+      case "Preheater Fan 1":
+        sectionData = data?.High_Power?.phf1;
+        break;
+      case "PHF2":
+      case "Preheater Fan 2":
+        sectionData = data?.High_Power?.phf2;
+        break;
+      case "Klin Main Drive 1":
+      case "Klin_main_drive_1":
+        sectionData = data?.High_Power?.Klin_main_drive_1;
+        break;
+      case "Klin Main Drive 2":
+      case "Klin_main_drive_2":
+        sectionData = data?.High_Power?.Klin_main_drive_2;
+        break;
       default:
         return false;
     }
@@ -575,7 +639,13 @@ const getHighPowerSubsections = (millType: string) => {
       return sectionData.length > 0;
     }
     if (typeof sectionData === 'object' && sectionData !== null) {
-      // Ignore metadata fields like 'cause', 'device', 'sensor'
+      // For High Power subsections, check if we have sensor and device data for trend analysis
+      if (["PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Klin Main Drive 1", "Klin Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(section)) {
+        return !!(sectionData.sensor && sectionData.Device);
+      }
+      
+      
+      // For other sections, ignore metadata fields like 'cause', 'device', 'sensor'
       const dataKeys = Object.keys(sectionData).filter(
         (key) => key !== 'cause' && key !== 'device' && key !== 'sensor'
       );
@@ -931,6 +1001,27 @@ const getHighPowerSubsections = (millType: string) => {
               }
             }
             
+            // PHF1 - Preheater Fan 1
+            if (hp.phf1 && typeof hp.phf1 === 'object') {
+              hpItems.push('Preheater Fan 1 Analysis:');
+              Object.entries(hp.phf1).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  hpItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            // PHF2 - Preheater Fan 2
+            if (hp.phf2 && typeof hp.phf2 === 'object') {
+              hpItems.push('Preheater Fan 2 Analysis:');
+              Object.entries(hp.phf2).forEach(([key, value]) => {
+                if (typeof value === 'string' && value.length > 0) {
+                  hpItems.push(`  • ${key}: ${value}`);
+                }
+              });
+            }
+            
+            
             if (hpItems.length > 0) {
               sections.push({
                 title: 'High Power Analysis',
@@ -1120,7 +1211,7 @@ const getHighPowerSubsections = (millType: string) => {
         'Day'
       ];
 
-      const diagnosticRows = filteredData.map(item => [
+      const diagnosticRows = finalFilteredData.map(item => [
         item.sectionName || 'N/A',
         item.backendData?.SPC?.target ? `${formatNumber(item.backendData.SPC.target)} kWh/t` : 'N/A',
         item.backendData?.SPC?.today ? `${formatNumber(item.backendData.SPC.today)} kWh/t` : 'N/A',
@@ -1145,12 +1236,13 @@ const getHighPowerSubsections = (millType: string) => {
         'Target TPH',
         'Cause',
         'Both RP Down Duration',
+        'Both RP Down Ramp-up',
         'Reduced Feed Duration',
         'Ball Mill Duration'
       ];
       tphData.push(tphHeaders);
 
-      filteredData.forEach(item => {
+      finalFilteredData.forEach(item => {
         if (item.backendData?.TPH) {
           const tph = item.backendData.TPH;
           tphData.push([
@@ -1160,6 +1252,7 @@ const getHighPowerSubsections = (millType: string) => {
             formatNumber((tph as any).target),
             (tph as any).cause || 'N/A',
             (tph as any).both_rp_down?.[1] || 'N/A',
+            (tph as any).both_rp_down?.[2] || 'N/A',
             (tph as any)["Reduced Feed Operations"]?.[1] || 'N/A',
             (tph as any).ball_mill?.[1] || 'N/A'
           ]);
@@ -1183,7 +1276,7 @@ const getHighPowerSubsections = (millType: string) => {
       ];
       highPowerData.push(highPowerHeaders);
 
-      filteredData.forEach(item => {
+      finalFilteredData.forEach(item => {
         if (item.backendData?.High_Power) {
           const hp = item.backendData.High_Power;
           Object.entries(hp).forEach(([subsection, data]) => {
@@ -1222,7 +1315,7 @@ const getHighPowerSubsections = (millType: string) => {
       ];
       maintenanceData.push(maintenanceHeaders);
 
-      filteredData.forEach(item => {
+      finalFilteredData.forEach(item => {
         if (item.backendData?.TPH) {
           const tph = item.backendData.TPH as any;
           // RP1 maintenance
@@ -1408,25 +1501,25 @@ const getHighPowerSubsections = (millType: string) => {
     const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter;
     
     // Apply section filter
-    const sectionMatch = selectedSection === "all" || item.sectionName === selectedSection;
+    let sectionMatch = false;
+    if (selectedSection === "all") {
+      sectionMatch = true;
+    } else {
+      sectionMatch = item.sectionName === selectedSection;
+    }
     
-    // Apply date range filter based on global time picker
-    const itemDate = new Date(item.timestamp);
-    const startDate = new Date(selectedRange.startDate);
-    const endDate = new Date(selectedRange.endDate);
+    // Note: Date filtering is now handled by the API call, so we don't need to filter here again
+    // This prevents double filtering which could cause data to be lost
     
-    // Set time to start of day for comparison
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(23, 59, 59, 999);
-    
-    const dateMatch = itemDate >= startDate && itemDate <= endDate;
-    
-    return statusMatch && sectionMatch && dateMatch;
+    return statusMatch && sectionMatch;
   })
+
+  // Use filteredData directly - Klin Main Drive sections are subsections within High Power, not separate rows
+  const finalFilteredData = filteredData;
 
 
   // Apply sorting to filtered data
-  const sortedData = sortData(filteredData);
+  const sortedData = sortData(finalFilteredData);
 
   // Create expanded data from sorted data
   const expandedData = sortedData.reduce((acc, item, index) => {
@@ -1535,7 +1628,7 @@ const getHighPowerSubsections = (millType: string) => {
                 <DropdownMenuItem onClick={() => setSelectedSection("all")}>
                   All Sections
                 </DropdownMenuItem>
-                {Array.from(new Set(diagnosticData.map(item => item.sectionName))).map((sectionName) => (
+                {Array.from(new Set(finalFilteredData.map(item => item.sectionName))).map((sectionName) => (
                   <DropdownMenuItem key={sectionName} onClick={() => setSelectedSection(sectionName)}>
                     {sectionName}
                   </DropdownMenuItem>
@@ -1596,7 +1689,7 @@ const getHighPowerSubsections = (millType: string) => {
               selectedFilter === "high" ? "bg-red-500 text-white shadow-md" : "bg-red-100 text-red-700 hover:bg-red-200"
             }`}
           >
-            High ({filteredData.filter((item) => item.status.toLowerCase() === "high").length})
+            High ({finalFilteredData.filter((item) => item.status.toLowerCase() === "high").length})
           </div>
 
           <div
@@ -1607,7 +1700,7 @@ const getHighPowerSubsections = (millType: string) => {
                 : "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
             }`}
           >
-            Medium ({filteredData.filter((item) => item.status.toLowerCase() === "medium").length})
+            Medium ({finalFilteredData.filter((item) => item.status.toLowerCase() === "medium").length})
           </div>
 
           <div
@@ -1618,7 +1711,7 @@ const getHighPowerSubsections = (millType: string) => {
                 : "bg-blue-100 text-blue-700 hover:bg-blue-200"
             }`}
           >
-            Low ({filteredData.filter((item) => item.status.toLowerCase() === "low").length})
+            Low ({finalFilteredData.filter((item) => item.status.toLowerCase() === "low").length})
           </div>
 
           <div
@@ -1629,7 +1722,7 @@ const getHighPowerSubsections = (millType: string) => {
                 : "bg-green-100 text-green-700 hover:bg-green-200"
             }`}
           >
-            Normal ({filteredData.filter((item) => item.status.toLowerCase() === "normal").length})
+            Normal ({finalFilteredData.filter((item) => item.status.toLowerCase() === "normal").length})
           </div>
           </div>
           
@@ -1937,6 +2030,12 @@ const getHighPowerSubsections = (millType: string) => {
                                     baseSections.push("quality");
                                     console.log('Accordion Debug - Added quality to baseSections:', baseSections);
                                   }
+
+                                  // Add Kiln section if this is a Kiln section
+                                  if (sortedData[index]?.sectionName === "Kiln") {
+                                    baseSections.push("kiln");
+                                    console.log('Accordion Debug - Added kiln to baseSections for Kiln section:', baseSections);
+                                  }
                                   
                                   return baseSections;
                                 })()}
@@ -1988,9 +2087,27 @@ const getHighPowerSubsections = (millType: string) => {
                                       {sortedData[index]?.backendData?.TPH?.one_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-semibold text-gray-900 text-base">Single RP Down</h4>
+                                            <h4 className="font-semibold text-gray-900 text-base">
+                                              {sortedData[index]?.sectionName === "Kiln" ? "Klin Feed" : "Single RP Down"}
+                                            </h4>
                                             <button
-                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.one_rp_down?.rampup, "Single RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName})}
+                                              onClick={() => {
+                                                // For Klin sections, use TPH events
+                                                // For Raw Mill sections, use rampup data
+                                                const isKlin = sortedData[index]?.sectionName === "Kiln";
+                                                const isRawMill = sortedData[index]?.sectionName === "Raw Mill 1" || sortedData[index]?.sectionName?.toLowerCase().includes('raw mill');
+                                                
+                                                if (isKlin) {
+                                                  // Klin: use TPH events
+                                                  openPopup(sortedData[index]?.backendData?.TPH?.events, "TPH Events", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                } else if (isRawMill) {
+                                                  // Raw Mill: use rampup data
+                                                  openPopup(sortedData[index]?.backendData?.TPH?.one_rp_down?.rampup, "Single RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                } else {
+                                                  // Default: use TPH events (for other mills)
+                                                  openPopup(sortedData[index]?.backendData?.TPH?.events, "TPH Events", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                }
+                                              }}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
                                                 hasTrendData(sortedData[index].backendData, "Single RP Down")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
@@ -2019,6 +2136,8 @@ const getHighPowerSubsections = (millType: string) => {
                                               )}
                                             </button>
                                           </div>
+                                          
+                                          
                                           <div className="space-y-2">
                                             {Array.isArray(sortedData[index]?.backendData?.TPH?.one_rp_down) ? 
                                               sortedData[index].backendData.TPH.one_rp_down.map((item: any, i: number) => (
@@ -2075,7 +2194,23 @@ const getHighPowerSubsections = (millType: string) => {
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Both RP Down</h4>
                                             <button
-                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.both_rp_down?.rampup, "Both RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName})}
+                                              onClick={() => {
+                                                const tphData = sortedData[index]?.backendData?.TPH;
+                                                const bothRpDown = tphData?.both_rp_down;
+                                                const rampupData = bothRpDown?.rampup;
+                                                
+                                                console.log('Both RP Down button clicked - TPH data:', tphData);
+                                                console.log('Both RP Down button clicked - both_rp_down object:', bothRpDown);
+                                                console.log('Both RP Down button clicked - rampup data:', rampupData);
+                                                
+                                                // For Both RP Down, prioritize rampup array for table display
+                                                const data = rampupData || (bothRpDown?.rampup) || [];
+                                                console.log('Both RP Down button clicked - final data:', data);
+                                                console.log('Both RP Down button clicked - data type:', typeof data);
+                                                console.log('Both RP Down button clicked - is array:', Array.isArray(data));
+                                                
+                                                openPopup(data, "Both RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                              }}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
                                                 hasTrendData(sortedData[index].backendData, "Both RP Down")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
@@ -2129,7 +2264,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                 <div className="space-y-1">
                                                   {typeof sortedData[index].backendData.TPH.both_rp_down === 'object' ? 
                                                     Object.entries(sortedData[index].backendData.TPH.both_rp_down)
-                                                      .filter(([key]) => /^\d+$/.test(key)) // Only numbered keys
+                                                      .filter(([key]) => key !== 'rampup') // Show all keys except rampup (which is handled separately)
                                                       .map(([key, value], j) => (
                                                       <div key={`both-rp-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
@@ -2147,6 +2282,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       </div>
                                                     )
                                                   }
+                                                  
                                                 </div>
                                               )
                                             }
@@ -2353,7 +2489,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   <AccordionContent className="px-4 pb-4">
                                     {/* Dynamic component for all mill types */}
                                     <DynamicHighPowerSection
-                                      filteredData={filteredData}
+                                      filteredData={finalFilteredData}
                                       index={index}
                                       selectedMillType={selectedSection}
                                       openPopup={openPopup}
@@ -2512,6 +2648,7 @@ const getHighPowerSubsections = (millType: string) => {
                                     </AccordionItem>
                                   );
                                 })() as React.ReactNode}
+
                               </Accordion>
                             </div>
                           </div>
@@ -2546,7 +2683,7 @@ const getHighPowerSubsections = (millType: string) => {
             {/* Content */}
             <div className="p-4">
               {/* Check if this is a High Power section */}
-              {["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15"].includes(popupData.section) ? (
+              {["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Klin Main Drive 1", "Klin Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(popupData.section) ? (
                 // For High Power sections, show only trend analysis
                 <div className="bg-gray-50 rounded-lg p-4">
                   <h4 className="font-semibold text-gray-900 mb-3">Trend Analysis</h4>
@@ -2665,6 +2802,218 @@ const getHighPowerSubsections = (millType: string) => {
                           />
                         )}
                         
+                        {/* PHF1 (Preheater Fan 1) Trend Chart */}
+                        {(popupData.section === "PHF1" || popupData.section === "Preheater Fan 1") && shouldShowTrend(popupData.backendData, "PHF1") && (
+                          <TrendChart
+                            deviceId={(() => {
+                              // Extract device ID from phf1 section
+                              const phf1Data = popupData.backendData?.High_Power?.phf1;
+                              if (phf1Data?.Device && typeof phf1Data.Device === 'object') {
+                                const deviceIds = Object.keys(phf1Data.Device);
+                                return deviceIds.length > 0 ? deviceIds[0] : "ABBBHPH_A1";
+                              }
+                              return "ABBBHPH_A1";
+                            })()}
+                            sensorList={(() => {
+                              // Extract sensor IDs from phf1 section
+                              const phf1Data = popupData.backendData?.High_Power?.phf1;
+                              if (phf1Data?.sensor && typeof phf1Data.sensor === 'object') {
+                                return Object.keys(phf1Data.sensor);
+                              }
+                              return ["D63", "D18"]; // Default fallback
+                            })()}
+                            startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                            endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                            title="Preheater Fan 1 Trend"
+                            legendNames={(() => {
+                              // Extract sensor names from phf1 section
+                              const phf1Data = popupData.backendData?.High_Power?.phf1;
+                              if (phf1Data?.sensor && typeof phf1Data.sensor === 'object') {
+                                return phf1Data.sensor;
+                              }
+                              return { "D63": "Klin Feed", "D18": "PH Fan 1 KW" };
+                            })()}
+                            targetValue={(() => {
+                              // Extract target value from phf1 section if available
+                              const phf1Data = popupData.backendData?.High_Power?.phf1;
+                              if (phf1Data?.Target) {
+                                const targetValues = Object.values(phf1Data.Target);
+                                return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                              }
+                              return undefined;
+                            })()}
+                          />
+                        )}
+                        
+                        {/* PHF2 (Preheater Fan 2) Trend Chart */}
+                        {(popupData.section === "PHF2" || popupData.section === "Preheater Fan 2") && shouldShowTrend(popupData.backendData, "PHF2") && (
+                          <TrendChart
+                            deviceId={(() => {
+                              // Extract device ID from phf2 section
+                              const phf2Data = popupData.backendData?.High_Power?.phf2;
+                              if (phf2Data?.Device && typeof phf2Data.Device === 'object') {
+                                const deviceIds = Object.keys(phf2Data.Device);
+                                return deviceIds.length > 0 ? deviceIds[0] : "ABBBHPH_A1";
+                              }
+                              return "ABBBHPH_A1";
+                            })()}
+                            sensorList={(() => {
+                              // Extract sensor IDs from phf2 section
+                              const phf2Data = popupData.backendData?.High_Power?.phf2;
+                              if (phf2Data?.sensor && typeof phf2Data.sensor === 'object') {
+                                return Object.keys(phf2Data.sensor);
+                              }
+                              return ["D63", "D19"]; // Default fallback
+                            })()}
+                            startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                            endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                            title="Preheater Fan 2 Trend"
+                            legendNames={(() => {
+                              // Extract sensor names from phf2 section
+                              const phf2Data = popupData.backendData?.High_Power?.phf2;
+                              if (phf2Data?.sensor && typeof phf2Data.sensor === 'object') {
+                                return phf2Data.sensor;
+                              }
+                              return { "D63": "Klin Feed", "D19": "PH Fan 2 KW" };
+                            })()}
+                            targetValue={(() => {
+                              // Extract target value from phf2 section if available
+                              const phf2Data = popupData.backendData?.High_Power?.phf2;
+                              if (phf2Data?.Target) {
+                                const targetValues = Object.values(phf2Data.Target);
+                                return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                              }
+                              return undefined;
+                            })()}
+                          />
+                        )}
+                        
+                        {/* Klin Main Drive 1 Trend Chart */}
+                        {(popupData.section === "Klin Main Drive 1" || popupData.section === "Klin_main_drive_1") && shouldShowTrend(popupData.backendData, "Klin Main Drive 1") && (
+                          (() => {
+                            // Check if TPH data is available
+                            const klinMainDrive1Data = popupData.backendData?.High_Power?.Klin_main_drive_1;
+                            const hasTPHData = klinMainDrive1Data?.sensor && 
+                              (klinMainDrive1Data.sensor.D63 || Object.keys(klinMainDrive1Data.sensor).some(key => key.includes('D63')));
+                            
+                            if (!hasTPHData) {
+                              return (
+                                <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                                  <div className="text-center">
+                                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                    <h3 className="mt-2 text-sm font-medium text-gray-900">No data available</h3>
+                                    <p className="mt-1 text-sm text-gray-500">TPH data is not available for Klin Main Drive 1</p>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            return (
+                              <TrendChart
+                                deviceId={(() => {
+                                  // Extract device ID from Klin_main_drive_1 section
+                                  if (klinMainDrive1Data?.Device && typeof klinMainDrive1Data.Device === 'object') {
+                                    const deviceIds = Object.keys(klinMainDrive1Data.Device);
+                                    return deviceIds.length > 0 ? deviceIds[0] : "ABBBHPH_A1";
+                                  }
+                                  return "ABBBHPH_A1";
+                                })()}
+                                sensorList={(() => {
+                                  // Extract sensor IDs from Klin_main_drive_1 section
+                                  if (klinMainDrive1Data?.sensor && typeof klinMainDrive1Data.sensor === 'object') {
+                                    return Object.keys(klinMainDrive1Data.sensor);
+                                  }
+                                  return ["D63", "D16"]; // Default fallback: D63 for TPH, D16 for RPM
+                                })()}
+                                startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                                endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                                title="Klin Main Drive 1 Trend"
+                                legendNames={(() => {
+                                  // Extract sensor names from Klin_main_drive_1 section
+                                  if (klinMainDrive1Data?.sensor && typeof klinMainDrive1Data.sensor === 'object') {
+                                    return klinMainDrive1Data.sensor;
+                                  }
+                                  return { "D63": "Klin Feed", "D16": "Klin RPM" };
+                                })()}
+                                targetValue={(() => {
+                                  // Extract target value from Klin_main_drive_1 section if available
+                                  if (klinMainDrive1Data?.Target) {
+                                    const targetValues = Object.values(klinMainDrive1Data.Target);
+                                    return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                                  }
+                                  return undefined;
+                                })()}
+                                isDualAxis={true}
+                              />
+                            );
+                          })()
+                        )}
+                        
+                        {/* Klin Main Drive 2 Trend Chart */}
+                        {(popupData.section === "Klin Main Drive 2" || popupData.section === "Klin_main_drive_2") && shouldShowTrend(popupData.backendData, "Klin Main Drive 2") && (
+                          (() => {
+                            // Check if TPH data is available
+                            const klinMainDrive2Data = popupData.backendData?.High_Power?.Klin_main_drive_2;
+                            const hasTPHData = klinMainDrive2Data?.sensor && 
+                              (klinMainDrive2Data.sensor.D63 || Object.keys(klinMainDrive2Data.sensor).some(key => key.includes('D63')));
+                            
+                            if (!hasTPHData) {
+                              return (
+                                <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                                  <div className="text-center">
+                                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                    <h3 className="mt-2 text-sm font-medium text-gray-900">No data available</h3>
+                                    <p className="mt-1 text-sm text-gray-500">TPH data is not available for Klin Main Drive 2</p>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            return (
+                              <TrendChart
+                                deviceId={(() => {
+                                  // Extract device ID from Klin_main_drive_2 section
+                                  if (klinMainDrive2Data?.Device && typeof klinMainDrive2Data.Device === 'object') {
+                                    const deviceIds = Object.keys(klinMainDrive2Data.Device);
+                                    return deviceIds.length > 0 ? deviceIds[0] : "ABBBHPH_A1";
+                                  }
+                                  return "ABBBHPH_A1";
+                                })()}
+                                sensorList={(() => {
+                                  // Extract sensor IDs from Klin_main_drive_2 section
+                                  if (klinMainDrive2Data?.sensor && typeof klinMainDrive2Data.sensor === 'object') {
+                                    return Object.keys(klinMainDrive2Data.sensor);
+                                  }
+                                  return ["D63", "D16"]; // Default fallback: D63 for TPH, D16 for RPM
+                                })()}
+                                startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                                endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                                title="Klin Main Drive 2 Trend"
+                                legendNames={(() => {
+                                  // Extract sensor names from Klin_main_drive_2 section
+                                  if (klinMainDrive2Data?.sensor && typeof klinMainDrive2Data.sensor === 'object') {
+                                    return klinMainDrive2Data.sensor;
+                                  }
+                                  return { "D63": "Klin Feed", "D16": "Klin RPM" };
+                                })()}
+                                targetValue={(() => {
+                                  // Extract target value from Klin_main_drive_2 section if available
+                                  if (klinMainDrive2Data?.Target) {
+                                    const targetValues = Object.values(klinMainDrive2Data.Target);
+                                    return targetValues.length > 0 ? parseFloat(targetValues[0] as string) : undefined;
+                                  }
+                                  return undefined;
+                                })()}
+                                isDualAxis={true}
+                              />
+                            );
+                          })()
+                        )}
+                        
                         {/* Product Transportation MCC15 Trend Chart */}
                         {popupData.section === "Product Transportation MCC15" && shouldShowTrend(popupData.backendData, "Product Transportation MCC15") && (
                           <TrendChart
@@ -2699,25 +3048,55 @@ const getHighPowerSubsections = (millType: string) => {
                   const millName = popupData.backendData?.sectionName || '';
                   const isCementMill = millName === "Cement Mill 1" || millName.toLowerCase().includes('cement mill');
                   const isQualitySection = ["Quality", "45 Micron", "90 Micron", "Blaine"].includes(popupData.section);
-                  return (isCementMill && !isQualitySection) ? "trend" : "table";
+                  const isTPHEvents = popupData.section === "TPH Events";
+                  
+                  // Debug logging for default tab
+                  if (isTPHEvents) {
+                    console.log('=== Default Tab Debug ===');
+                    console.log('Default tab will be:', (isCementMill && !isQualitySection && !isTPHEvents) ? "trend" : "table");
+                  }
+                  
+                  // For Cement Mill Single RP Down, show only Table Data tab
+                  // For Cement Mill 1 (general), show only Trend Analysis tab
+                  const isCementMillSingleRP = isCementMill && popupData.section === "Single RP Down";
+                  const isCementMill1 = isCementMill && popupData.section !== "Single RP Down";
+                  return (isCementMillSingleRP) ? "table" : (isCementMill1) ? "trend" : (isCementMill && !isQualitySection && !isTPHEvents) ? "trend" : "table";
                 })()} className="w-full">
                   <TabsList className={`grid w-full ${(() => {
                     const millName = popupData.backendData?.sectionName || '';
                     const isCementMill = millName === "Cement Mill 1" || millName.toLowerCase().includes('cement mill');
                     const isQualitySection = ["Quality", "45 Micron", "90 Micron", "Blaine"].includes(popupData.section);
-                    return (isCementMill && !isQualitySection) ? "grid-cols-1" : "grid-cols-2";
+                    const isTPHEvents = popupData.section === "TPH Events";
+                    const isCementMillSingleRP = isCementMill && popupData.section === "Single RP Down";
+                    const isCementMill1 = isCementMill && popupData.section !== "Single RP Down";
+                    return (isCementMillSingleRP || isCementMill1) ? "grid-cols-1" : (isCementMill && !isQualitySection && !isTPHEvents) ? "grid-cols-1" : "grid-cols-2";
                   })()}`}>
                     {(() => {
                       const millName = popupData.backendData?.sectionName || '';
                       const isCementMill = millName === "Cement Mill 1" || millName.toLowerCase().includes('cement mill');
                       const isQualitySection = ["Quality", "45 Micron", "90 Micron", "Blaine"].includes(popupData.section);
-                      return (!isCementMill || isQualitySection) && <TabsTrigger value="table">Table Data</TabsTrigger>;
+                      const isTPHEvents = popupData.section === "TPH Events";
+                      
+                      // Debug logging for tab trigger
+                      if (isTPHEvents) {
+                        console.log('=== Tab Trigger Debug ===');
+                        console.log('Should show Table Data tab:', (!isCementMill || isQualitySection || isTPHEvents));
+                      }
+                      
+                      const isCementMillSingleRP = isCementMill && popupData.section === "Single RP Down";
+                      const isCementMill1 = isCementMill && popupData.section !== "Single RP Down";
+                      // Show Table Data tab only for Single RP Down in Cement Mill, or for non-Cement Mill sections, or Quality sections
+                      // Do NOT show for Cement Mill 1 general sections (including TPH Events)
+                      return (isCementMillSingleRP || (!isCementMill) || isQualitySection) && <TabsTrigger value="table">Table Data</TabsTrigger>;
                     })()}
                     {(() => {
                       const millName = popupData.backendData?.sectionName || '';
                       const isCementMill = millName === "Cement Mill 1" || millName.toLowerCase().includes('cement mill');
                       const isQualitySection = ["Quality", "45 Micron", "90 Micron", "Blaine"].includes(popupData.section);
-                      return !isQualitySection && <TabsTrigger value="trend">Trend Analysis</TabsTrigger>;
+                      const isCementMillSingleRP = isCementMill && popupData.section === "Single RP Down";
+                      const isCementMill1 = isCementMill && popupData.section !== "Single RP Down";
+                      // Show Trend Analysis tab for Cement Mill 1 (except Single RP Down), or for non-Quality sections
+                      return !isQualitySection && (isCementMill1 || !isCementMillSingleRP) && <TabsTrigger value="trend">Trend Analysis</TabsTrigger>;
                     })()}
                   </TabsList>
                   
@@ -2725,10 +3104,24 @@ const getHighPowerSubsections = (millType: string) => {
                     const millName = popupData.backendData?.sectionName || '';
                     const isCementMill = millName === "Cement Mill 1" || millName.toLowerCase().includes('cement mill');
                     const isQualitySection = ["Quality", "45 Micron", "90 Micron", "Blaine"].includes(popupData.section);
-                    return (!isCementMill || isQualitySection) && (
+                    const isTPHEvents = popupData.section === "TPH Events";
+                    
+                    // Debug logging for TPH Events
+                    if (isTPHEvents) {
+                      console.log('=== TPH Events Debug ===');
+                      console.log('popupData.section:', popupData.section);
+                      console.log('popupData.data:', popupData.data);
+                      console.log('popupData.backendData:', popupData.backendData);
+                      console.log('millName:', millName);
+                      console.log('isCementMill:', isCementMill);
+                      console.log('isQualitySection:', isQualitySection);
+                      console.log('isTPHEvents:', isTPHEvents);
+                      console.log('Should show table:', (!isCementMill || isQualitySection || isTPHEvents));
+                    }
+                    
+                    return (!isCementMill || isQualitySection || isTPHEvents) && (
                       <TabsContent value="table" className="mt-4">
                     <div className="bg-gray-50 rounded-lg p-4">
-                      <h4 className="font-semibold text-gray-900 mb-3">Data Table</h4>
                       {popupData.data && Array.isArray(popupData.data) ? (
                         <div className="overflow-x-auto max-h-[75vh]">
                           <Table>
@@ -2764,6 +3157,15 @@ const getHighPowerSubsections = (millType: string) => {
                                       </>
                                     );
                                   })()
+                                ) : popupData.section === "Single RP Down Events" || popupData.section === "TPH Events" ? (
+                                  <>
+                                    <TableHead className="w-[150px]">Start Time</TableHead>
+                                    <TableHead className="w-[150px]">End Time</TableHead>
+                                    <TableHead className="w-[120px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[120px]">Min Value</TableHead>
+                                    <TableHead className="w-[120px]">Day Mean</TableHead>
+                                    <TableHead className="w-[120px]">Drop %</TableHead>
+                                  </>
                                 ) : popupData.section === "Reduced Feed Operations" ? (
                                   <>
                                     <TableHead className="w-[150px]">Start Time</TableHead>
@@ -2774,7 +3176,7 @@ const getHighPowerSubsections = (millType: string) => {
                                     <TableHead className="w-[120px]">Minimum TPH</TableHead>
                                     <TableHead className="w-[120px]">Maximum TPH</TableHead>
                                   </>
-                                ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && popupData.data.length > 0 && popupData.data[0].scenario ? (
+                                ) : (popupData.section.includes("RP Down") || popupData.section === "Both RP Down") && Array.isArray(popupData.data) && popupData.data.length > 0 && popupData.data[0].scenario ? (
                                   <>
                                     <TableHead className="w-[200px]">Scenario</TableHead>
                                     <TableHead className="w-[150px]">Ramp Start</TableHead>
@@ -2804,6 +3206,15 @@ const getHighPowerSubsections = (millType: string) => {
                                         </TableCell>
                                       ))}
                                     </>
+                                  ) : popupData.section === "Single RP Down Events" || popupData.section === "TPH Events" ? (
+                                    <>
+                                      <TableCell>{formatTime(item.start)}</TableCell>
+                                      <TableCell>{formatTime(item.end)}</TableCell>
+                                      <TableCell>{formatNumber(item.duration_min)}</TableCell>
+                                      <TableCell>{formatNumber(item.min_value)}</TableCell>
+                                      <TableCell>{formatNumber(item.day_mean)}</TableCell>
+                                      <TableCell>{formatNumber(item.drop_percent)}%</TableCell>
+                                    </>
                                   ) : popupData.section === "Reduced Feed Operations" ? (
                                     <>
                                       <TableCell>{formatTime(item.period_start)}</TableCell>
@@ -2814,7 +3225,7 @@ const getHighPowerSubsections = (millType: string) => {
                                       <TableCell>{formatNumber(item.min_tph)}</TableCell>
                                       <TableCell>{formatNumber(item.max_tph)}</TableCell>
                                     </>
-                                  ) : popupData.section.includes("RP Down") && Array.isArray(popupData.data) && item.scenario ? (
+                                  ) : (popupData.section.includes("RP Down") || popupData.section === "Both RP Down") && Array.isArray(popupData.data) && item.scenario ? (
                                     <>
                                       <TableCell className="font-medium">{item.scenario || `Event ${i + 1}`}</TableCell>
                                       <TableCell>{formatTime(item.ramp_start)}</TableCell>
@@ -2837,7 +3248,28 @@ const getHighPowerSubsections = (millType: string) => {
                           </Table>
                         </div>
                       ) : (
-                        <p className="text-gray-500">No table data available</p>
+                        <div>
+                          <p className="text-gray-500">No table data available</p>
+                          {(popupData.section === "TPH Events" || popupData.section === "Both RP Down") && (
+                            <div className="mt-2 p-2 bg-red-100 rounded text-sm">
+                              <strong>Debug:</strong> popupData.data = {JSON.stringify(popupData.data)}
+                              <br />
+                              <strong>Section:</strong> {popupData.section}
+                              <br />
+                              <strong>Data type:</strong> {typeof popupData.data}
+                              <br />
+                              <strong>Is Array:</strong> {Array.isArray(popupData.data) ? 'Yes' : 'No'}
+                              {Array.isArray(popupData.data) && popupData.data.length > 0 && (
+                                <>
+                                  <br />
+                                  <strong>First item:</strong> {JSON.stringify(popupData.data[0])}
+                                  <br />
+                                  <strong>Has scenario:</strong> {popupData.data[0]?.scenario ? 'Yes' : 'No'}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </TabsContent>
@@ -2855,7 +3287,7 @@ const getHighPowerSubsections = (millType: string) => {
                         
                         {/* Show trend chart for TPH sections if device/sensor info is available, or for other sections if data exists */}
                         {(() => {
-                          const isTPHSection = ["Reduced Feed Operations", "Single RP Down", "One RP Down", "Both RP Down"].includes(popupData.section);
+                          const isTPHSection = ["Reduced Feed Operations", "Single RP Down", "One RP Down", "Both RP Down", "TPH Events"].includes(popupData.section);
                           if (isTPHSection) {
                             return popupData.backendData?.TPH?.Device && popupData.backendData?.TPH?.sensor;
                           }
@@ -2874,7 +3306,7 @@ const getHighPowerSubsections = (millType: string) => {
                             })()}
                             
                             {/* TPH Trend Chart for all TPH subsections */}
-                            {["Reduced Feed Operations", "Single RP Down", "One RP Down", "Both RP Down"].includes(popupData.section) && hasTrendData(popupData.backendData, popupData.section) && (
+                            {["Reduced Feed Operations", "Single RP Down", "One RP Down", "Both RP Down", "Single RP Down Events", "TPH Events"].includes(popupData.section) && hasTrendData(popupData.backendData, popupData.section) && (
                               <TrendChart
                                 deviceId={(() => {
                                   const deviceId = popupData.backendData?.TPH?.Device || extractDeviceId(popupData.backendData) || "ABBRWML_A1";
@@ -2909,7 +3341,8 @@ const getHighPowerSubsections = (millType: string) => {
                                 events={(() => {
                                   // For cement mill, use stoppages data for highlighting (similar to raw mill ramp up logic)
                                   const millName = popupData.backendData?.sectionName || '';
-                                  const isCementMill = millName === "Cement Mill 1" || millName.toLowerCase().includes('cement mill');
+                                  const isKlin = millName === "Kiln";
+                                  const isCementMill = (millName === "Cement Mill 1" || millName.toLowerCase().includes('cement mill')) && !isKlin;
                                   if (isCementMill) {
                                     const stoppageEvents: any[] = [];
                                     
@@ -2959,6 +3392,23 @@ const getHighPowerSubsections = (millType: string) => {
                                     return stoppageEvents.length > 0 ? stoppageEvents : undefined;
                                   }
                                   
+                                  // For TPH Events, use the events data from TPH section
+                                  if (popupData.section === "TPH Events" && popupData.backendData?.TPH?.events) {
+                                    const tphEvents = popupData.backendData.TPH.events;
+                                    console.log('TPH Events for highlighting:', tphEvents);
+                                    
+                                    // For Klin sections, use "Drop Events" as legend text
+                                    const isKlin = popupData.backendData?.sectionName === "Kiln";
+                                    const eventType = isKlin ? "Drop Events" : "TPH Event";
+                                    
+                                    return tphEvents.map((event: any, index: number) => ({
+                                      startTime: event.start,
+                                      endTime: event.end,
+                                      color: "#ED1C24", // Red color for TPH events
+                                      type: eventType
+                                    }));
+                                  }
+                                  
                                   // For raw mill, use table data as before
                                   return popupData.data && Array.isArray(popupData.data) 
                                     ? popupData.data.map((item: any, index: number) => {
@@ -3005,6 +3455,15 @@ const getHighPowerSubsections = (millType: string) => {
                                     : undefined;
                                 })()}
                                 legendNames={(() => {
+                                  // For Klin sections, use Klin-specific legend names
+                                  const isKlin = popupData.backendData?.sectionName === "Kiln";
+                                  if (isKlin) {
+                                    return {
+                                      normal: "Klin feed rate",
+                                      event: "Drop Events"
+                                    };
+                                  }
+                                  
                                   // For Cement Mill, use the sensor names from TPH section
                                   const tphSensor = popupData.backendData?.TPH?.sensor;
                                   if (tphSensor && typeof tphSensor === 'object') {
@@ -3077,10 +3536,11 @@ const getHighPowerSubsections = (millType: string) => {
               </button>
             </div>
             <div className="p-4">
-              <Tabs value={maintenancePopup.activeTab} onValueChange={tab => setMaintenancePopup(p => ({ ...p, activeTab: tab as 'RP1' | 'RP2' }))}>
+              <Tabs value={maintenancePopup.activeTab} onValueChange={tab => setMaintenancePopup(p => ({ ...p, activeTab: tab as 'RP1' | 'RP2' | 'Klin' }))}>
                 <TabsList className="mb-4">
                   <TabsTrigger value="RP1">RP1 Maintenance</TabsTrigger>
                   <TabsTrigger value="RP2">RP2 Maintenance</TabsTrigger>
+                  <TabsTrigger value="Klin">Klin Maintenance</TabsTrigger>
                 </TabsList>
                 <TabsContent value="RP1">
                   {maintenancePopup.rp1.length > 0 ? (
@@ -3170,6 +3630,51 @@ const getHighPowerSubsections = (millType: string) => {
                     </div>
                   ) : (
                     <p className="text-gray-500">No RP2 maintenance data available.</p>
+                  )}
+                </TabsContent>
+                <TabsContent value="Klin">
+                  {maintenancePopup.klin.length > 0 ? (
+                    <div className="overflow-x-auto max-h-[60vh]">
+                      <Table className="min-w-full border rounded-lg">
+                        <TableHeader className="sticky top-0 bg-white z-10">
+                          <TableRow>
+                            <TableHead className="px-4 py-2 text-left border-b">Start Date Time</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b">End Date Time</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Department</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Stoppage Category</TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b max-w-[140px] truncate cursor-pointer" title={maintenancePopup.klin[0]?.["Reason of Stoppage"]}>
+                              Reason of Stoppage
+                            </TableHead>
+                            <TableHead className="px-4 py-2 text-left border-b whitespace-nowrap">Calculated Duration (H:M)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {maintenancePopup.klin.map((item, i) => (
+                            <TableRow key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["Start Date Time"])}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{formatTimeIST(item["End Date Time"])}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Department"]}</TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Stoppage Category"]}</TableCell>
+                              <TableCell
+                                className="px-4 py-3 align-top border-b max-w-[140px] truncate cursor-pointer"
+                                title={item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"] || {}).length > 0 
+                                  ? `${item["Reason of Stoppage"] ?? ''} - ${item["Other Reason of stoppage"] ?? ''}`
+                                  : item["Reason of Stoppage"] ?? ''
+                                }
+                              >
+                                {item["Other Reason of stoppage"] && Object.keys(item["Other Reason of stoppage"] || {}).length > 0 
+                                  ? `${item["Reason of Stoppage"] ?? ''} - ${item["Other Reason of stoppage"] ?? ''}`
+                                  : item["Reason of Stoppage"] ?? ''
+                                }
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-top border-b whitespace-nowrap">{item["Calculated Duration (H:M)"]}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No Klin maintenance data available.</p>
                   )}
                 </TabsContent>
               </Tabs>
