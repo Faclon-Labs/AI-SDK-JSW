@@ -14,11 +14,11 @@ async function testConnection() {
     console.log('Testing connection with parameters:');
     console.log('- userId:', BACKEND_CONFIG.userId);
     console.log('- dataUrl:', BACKEND_CONFIG.dataUrl);
-    console.log('- insightId: INS_015ce0dcf91c');
+    console.log('- insightId: INS_a7bca70a5160');
     console.log('- date range: 2025-06-22 to 2025-06-23');
     
     const result = await bruceHandler.fetchInsightResults({
-      insightId: 'INS_015ce0dcf91c',
+      insightId: 'INS_a7bca70a5160',
       filter: { 
         startDate: '2025-06-22T00:00:00Z',
         endDate: '2025-06-23T23:59:59Z'
@@ -34,7 +34,7 @@ async function testConnection() {
       
       // Try without date filter
       const resultNoFilter = await bruceHandler.fetchInsightResults({
-        insightId: 'INS_015ce0dcf91c',
+        insightId: 'INS_a7bca70a5160',
         filter: {},
         pagination: { page: 1, count: 10 },
       });

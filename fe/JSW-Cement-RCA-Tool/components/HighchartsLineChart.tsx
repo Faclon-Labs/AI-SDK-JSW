@@ -24,11 +24,13 @@ interface HighchartsLineChartProps {
   targetValue?: number;
   isHighPowerSection?: boolean;
   eventType?: 'RP1' | 'RP2' | 'general'; // Add event type for color differentiation
+  isCementMillTPH?: boolean; // Add prop to identify cement mill TPH sections
   events?: Array<{
     startTime: string;
     endTime: string;
     color?: string;
   }>; // Add individual events with colors
+  isDualAxis?: boolean; // Add prop for dual-axis plotting
 }
 
 export default function HighchartsLineChart({ 
@@ -39,7 +41,9 @@ export default function HighchartsLineChart({
   targetValue, 
   isHighPowerSection = false,
   eventType = 'general',
-  events = []
+  isCementMillTPH = false,
+  events = [],
+  isDualAxis = false
 }: HighchartsLineChartProps) {
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
 
@@ -90,7 +94,7 @@ export default function HighchartsLineChart({
           name: lines[0]?.name || "Raw mill feed rate",
           color: lines[0]?.color || '#3263fc',
           data: mainData,
-          visible: !hidden.normal,
+          visible: !hidden[lines[0]?.name || "Raw mill feed rate"], // Use consistent naming
           lineWidth: 2,
           marker: {
             enabled: false
@@ -103,22 +107,38 @@ export default function HighchartsLineChart({
         }];
       } else {
         // For other High Power sections, create series for each sensor line
-        series = lines.map(line => ({
-          type: 'line',
-          name: line.name,
-          color: line.color,
-          data: data.map(point => [point.timestamp, parseFloat(point[line.key] || '0')]),
-          visible: !hidden[line.key],
-          lineWidth: 2,
-          marker: {
-            enabled: false
-          },
-          states: {
-            hover: {
-              lineWidth: 3
+        series = lines.map((line, index) => {
+          const seriesConfig: any = {
+            type: 'line',
+            name: line.name,
+            color: line.color,
+            data: data.map(point => [point.timestamp, parseFloat(point[line.key] || '0')]),
+            visible: !hidden[line.name], // Use line.name instead of line.key for consistency
+            lineWidth: 2,
+            marker: {
+              enabled: false
+            },
+            states: {
+              hover: {
+                lineWidth: 3
+              }
+            }
+          };
+          
+          // For dual-axis plotting (PHF and Kiln Main Drive sections), assign yAxis based on sensor type
+          if (isDualAxis) {
+            // Kiln Feed (D63) goes on left axis (yAxis: 0)
+            // PH Fan sensors (D18, D19) and Kiln RPM (D16) go on right axis (yAxis: 1)
+            if (line.name.includes('Kiln Feed') || line.key.includes('D63')) {
+              seriesConfig.yAxis = 0;
+            } else if (line.name.includes('PH Fan') || line.key.includes('D18') || line.key.includes('D19') || 
+                       line.name.includes('Kiln RPM') || line.key.includes('D16')) {
+              seriesConfig.yAxis = 1;
             }
           }
-        }));
+          
+          return seriesConfig;
+        });
       }
 
       // Add event highlighting series
@@ -127,11 +147,21 @@ export default function HighchartsLineChart({
         endTime: range.end,
         color: range.color
       }));
+      
+      // Debug logging for events
+      console.log('HighchartsLineChart - Events received:', events);
+      console.log('HighchartsLineChart - EventRanges received:', eventRanges);
+      console.log('HighchartsLineChart - Events to process:', eventsToProcess);
 
       if (eventsToProcess && eventsToProcess.length > 0) {
         // Check if this is for Reduced Feed Operations, Both RP Down, or One RP Down
         const isReducedFeedOperations = title.toLowerCase().includes('reduced feed operations');
         const isBothRPDown = title.toLowerCase().includes('both rp down');
+        const isSingleRPDown = title.toLowerCase().includes('single rp down') || title.toLowerCase().includes('one rp down');
+        
+        console.log('Event processing - isReducedFeedOperations:', isReducedFeedOperations);
+        console.log('Event processing - isBothRPDown:', isBothRPDown);
+        console.log('Event processing - isSingleRPDown:', isSingleRPDown);
         
         if (isReducedFeedOperations) {
           // For Reduced Feed Operations, just highlight the existing line during events
@@ -231,7 +261,10 @@ export default function HighchartsLineChart({
               return pointTime >= eventStart && pointTime <= eventEnd;
             }).map(point => {
               const pointTime = point.timestamp;
-              const pointValue = parseFloat(point[lines[0]?.key || 'D49'] || '0');
+              // Use the correct sensor key for the data point
+              const sensorKey = lines[0]?.key || 'D49';
+              const pointValue = parseFloat(point[sensorKey] || '0');
+              console.log(`Event point - sensorKey: ${sensorKey}, pointValue: ${pointValue}, point:`, point);
               return [pointTime, pointValue];
             });
             
@@ -280,7 +313,10 @@ export default function HighchartsLineChart({
               return pointTime >= eventStart && pointTime <= eventEnd;
             }).map(point => {
               const pointTime = point.timestamp;
-              const pointValue = parseFloat(point[lines[0]?.key || 'D49'] || '0');
+              // Use the correct sensor key for the data point
+              const sensorKey = lines[0]?.key || 'D49';
+              const pointValue = parseFloat(point[sensorKey] || '0');
+              console.log(`Event point - sensorKey: ${sensorKey}, pointValue: ${pointValue}, point:`, point);
               return [pointTime, pointValue];
             });
             
@@ -300,7 +336,7 @@ export default function HighchartsLineChart({
             if (eventGroup.length > 0) {
               series.push({
                 type: 'line',
-                name: 'RP1 Ramp Events', // Same name for legend grouping
+                name: isCementMillTPH ? 'RP1 Stoppages' : 'RP1 Ramp Events', // Same name for legend grouping
                 color: '#FFD700',
                 data: eventGroup,
                 visible: !hidden.rp1_events,
@@ -324,7 +360,7 @@ export default function HighchartsLineChart({
             if (eventGroup.length > 0) {
               series.push({
                 type: 'line',
-                name: 'RP2 Ramp Events', // Same name for legend grouping
+                name: isCementMillTPH ? 'RP2 Stoppages' : (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events'), // Same name for legend grouping
                 color: '#ED1C24',
                 data: eventGroup,
                 visible: !hidden.rp2_events,
@@ -418,7 +454,7 @@ export default function HighchartsLineChart({
           name: lines[0]?.name || "Raw mill feed rate",
           color: lines[0]?.color || '#3263fc',
           data: normalData,
-          visible: !hidden.normal,
+          visible: !hidden[lines[0]?.name || "Raw mill feed rate"], // Use consistent naming
           lineWidth: 2,
           marker: {
             enabled: false
@@ -453,7 +489,10 @@ export default function HighchartsLineChart({
               return pointTime >= eventStart && pointTime <= eventEnd;
             }).map(point => {
               const pointTime = point.timestamp;
-              const pointValue = parseFloat(point[lines[0]?.key || 'D49'] || '0');
+              // Use the correct sensor key for the data point
+              const sensorKey = lines[0]?.key || 'D49';
+              const pointValue = parseFloat(point[sensorKey] || '0');
+              console.log(`Event point - sensorKey: ${sensorKey}, pointValue: ${pointValue}, point:`, point);
               return [pointTime, pointValue];
             });
             
@@ -530,7 +569,10 @@ export default function HighchartsLineChart({
               return pointTime >= eventStart && pointTime <= eventEnd;
             }).map(point => {
               const pointTime = point.timestamp;
-              const pointValue = parseFloat(point[lines[0]?.key || 'D49'] || '0');
+              // Use the correct sensor key for the data point
+              const sensorKey = lines[0]?.key || 'D49';
+              const pointValue = parseFloat(point[sensorKey] || '0');
+              console.log(`Event point - sensorKey: ${sensorKey}, pointValue: ${pointValue}, point:`, point);
               return [pointTime, pointValue];
             });
             
@@ -579,7 +621,10 @@ export default function HighchartsLineChart({
               return pointTime >= eventStart && pointTime <= eventEnd;
             }).map(point => {
               const pointTime = point.timestamp;
-              const pointValue = parseFloat(point[lines[0]?.key || 'D49'] || '0');
+              // Use the correct sensor key for the data point
+              const sensorKey = lines[0]?.key || 'D49';
+              const pointValue = parseFloat(point[sensorKey] || '0');
+              console.log(`Event point - sensorKey: ${sensorKey}, pointValue: ${pointValue}, point:`, point);
               return [pointTime, pointValue];
             });
             
@@ -599,7 +644,7 @@ export default function HighchartsLineChart({
             if (eventGroup.length > 0) {
               series.push({
                 type: 'line',
-                name: 'RP1 Ramp Events', // Same name for legend grouping
+                name: isCementMillTPH ? 'RP1 Stoppages' : 'RP1 Ramp Events', // Same name for legend grouping
                 color: '#FFD700',
                 data: eventGroup,
                 visible: !hidden.rp1_events,
@@ -623,7 +668,7 @@ export default function HighchartsLineChart({
             if (eventGroup.length > 0) {
               series.push({
                 type: 'line',
-                name: 'RP2 Ramp Events', // Same name for legend grouping
+                name: isCementMillTPH ? 'RP2 Stoppages' : (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events'), // Same name for legend grouping
                 color: '#ED1C24',
                 data: eventGroup,
                 visible: !hidden.rp2_events,
@@ -724,7 +769,43 @@ export default function HighchartsLineChart({
       gridLineWidth: 1,
       gridLineColor: '#e5e7eb'
     },
-    yAxis: {
+    yAxis: isDualAxis ? [
+      {
+        // Left axis for Kiln Feed
+        title: {
+          text: 'Kiln Feed (TPH)',
+          style: {
+            color: '#3263fc'
+          }
+        },
+        labels: {
+          style: {
+            fontSize: '12px',
+            color: '#3263fc'
+          }
+        },
+        gridLineColor: '#e5e7eb',
+        gridLineDashStyle: 'Dash'
+      },
+      {
+        // Right axis for PH Fan Power or Kiln RPM
+        title: {
+          text: title.toLowerCase().includes('kiln main drive') ? 'Kiln RPM' : 'PH Fan Power (kW)',
+          style: {
+            color: '#ff8d13'
+          }
+        },
+        labels: {
+          style: {
+            fontSize: '12px',
+            color: '#ff8d13'
+          }
+        },
+        opposite: true,
+        gridLineColor: '#e5e7eb',
+        gridLineDashStyle: 'Dash'
+      }
+    ] : {
       title: {
         text: ''
       },
@@ -746,7 +827,22 @@ export default function HighchartsLineChart({
             if (point.series.visible) {
               // Replace the dot with a small square styled inline
               const roundedY = point.y !== undefined ? Number(point.y).toFixed(2) : '';
-              tooltip += `<span style="display:inline-block;width:8px;height:8px;background:${point.color};margin-right:4px;border-radius:2px;vertical-align:middle;"></span> ${point.series.name}: <b>${roundedY}</b> Feed Rate<br/>`;
+              let unit = '';
+              
+              // Add appropriate units for dual-axis charts
+              if (isDualAxis) {
+                if (point.series.name.includes('Kiln Feed') || point.series.name.includes('D63')) {
+                  unit = ' TPH';
+                } else if (point.series.name.includes('PH Fan') || point.series.name.includes('D18') || point.series.name.includes('D19')) {
+                  unit = ' kW';
+                } else if (point.series.name.includes('Kiln RPM') || point.series.name.includes('D16')) {
+                  unit = ' RPM';
+                }
+              } else {
+                unit = ' Feed Rate';
+              }
+              
+              tooltip += `<span style="display:inline-block;width:8px;height:8px;background:${point.color};margin-right:4px;border-radius:2px;vertical-align:middle;"></span> ${point.series.name}: <b>${roundedY}${unit}</b><br/>`;
             }
           });
         } else if (this.y !== undefined) {
@@ -788,8 +884,9 @@ export default function HighchartsLineChart({
         events: {
           legendItemClick: function(this: any, e: any) {
             e.preventDefault();
-            setHidden(prev => ({ ...prev, [this.name]: !prev[this.name] }));
-            this.setVisible(!this.visible);
+            const seriesName = this.name;
+            setHidden(prev => ({ ...prev, [seriesName]: !prev[seriesName] }));
+            return false; // Prevent default legend behavior
           }
         }
       }
@@ -814,7 +911,11 @@ export default function HighchartsLineChart({
 
   return (
     <div style={{ width: '100%' }}>
-      <HighchartsReact highcharts={Highcharts} options={chartOptions} />
+      <HighchartsReact 
+        highcharts={Highcharts} 
+        options={chartOptions}
+        key={JSON.stringify(hidden)} // Force re-render when hidden state changes
+      />
     </div>
   );
 } 
