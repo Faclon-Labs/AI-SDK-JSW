@@ -125,14 +125,14 @@ export default function HighchartsLineChart({
             }
           };
           
-          // For dual-axis plotting (PHF and Klin Main Drive sections), assign yAxis based on sensor type
+          // For dual-axis plotting (PHF and Kiln Main Drive sections), assign yAxis based on sensor type
           if (isDualAxis) {
-            // Klin Feed (D63) goes on left axis (yAxis: 0)
-            // PH Fan sensors (D18, D19) and Klin RPM (D16) go on right axis (yAxis: 1)
-            if (line.name.includes('Klin Feed') || line.key.includes('D63')) {
+            // Kiln Feed (D63) goes on left axis (yAxis: 0)
+            // PH Fan sensors (D18, D19) and Kiln RPM (D16) go on right axis (yAxis: 1)
+            if (line.name.includes('Kiln Feed') || line.key.includes('D63')) {
               seriesConfig.yAxis = 0;
             } else if (line.name.includes('PH Fan') || line.key.includes('D18') || line.key.includes('D19') || 
-                       line.name.includes('Klin RPM') || line.key.includes('D16')) {
+                       line.name.includes('Kiln RPM') || line.key.includes('D16')) {
               seriesConfig.yAxis = 1;
             }
           }
@@ -771,9 +771,9 @@ export default function HighchartsLineChart({
     },
     yAxis: isDualAxis ? [
       {
-        // Left axis for Klin Feed
+        // Left axis for Kiln Feed
         title: {
-          text: 'Klin Feed (TPH)',
+          text: 'Kiln Feed (TPH)',
           style: {
             color: '#3263fc'
           }
@@ -788,9 +788,9 @@ export default function HighchartsLineChart({
         gridLineDashStyle: 'Dash'
       },
       {
-        // Right axis for PH Fan Power or Klin RPM
+        // Right axis for PH Fan Power or Kiln RPM
         title: {
-          text: title.toLowerCase().includes('klin main drive') ? 'Klin RPM' : 'PH Fan Power (kW)',
+          text: title.toLowerCase().includes('kiln main drive') ? 'Kiln RPM' : 'PH Fan Power (kW)',
           style: {
             color: '#ff8d13'
           }
@@ -831,11 +831,11 @@ export default function HighchartsLineChart({
               
               // Add appropriate units for dual-axis charts
               if (isDualAxis) {
-                if (point.series.name.includes('Klin Feed') || point.series.name.includes('D63')) {
+                if (point.series.name.includes('Kiln Feed') || point.series.name.includes('D63')) {
                   unit = ' TPH';
                 } else if (point.series.name.includes('PH Fan') || point.series.name.includes('D18') || point.series.name.includes('D19')) {
                   unit = ' kW';
-                } else if (point.series.name.includes('Klin RPM') || point.series.name.includes('D16')) {
+                } else if (point.series.name.includes('Kiln RPM') || point.series.name.includes('D16')) {
                   unit = ' RPM';
                 }
               } else {

@@ -73,8 +73,8 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
       case 'cooler_fan': return 'Cooler Fan';
       case 'phf1': return 'Preheater Fan 1';
       case 'phf2': return 'Preheater Fan 2';
-      case 'Klin_main_drive_1': return 'Klin Main Drive 1';
-      case 'Klin_main_drive_2': return 'Klin Main Drive 2';
+      case 'Klin_main_drive_1': return 'Kiln Main Drive 1';
+      case 'Klin_main_drive_2': return 'Kiln Main Drive 2';
       default: return key;
     }
   };

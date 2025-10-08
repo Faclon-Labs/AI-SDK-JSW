@@ -64,7 +64,7 @@ export async function fetchAllInsightResults() {
       const result = await bruceHandler.fetchInsightResults({
         insightId,
         filter: {}, // No date filter to get all results
-        pagination: { page: 1, count: 50 }, // Get more results
+        pagination: { page: 1, count: 1000 }, // Get more results
       });
       return result.results;
     } catch (error) {
@@ -101,7 +101,7 @@ export async function fetchInsightResultsByTimeRange(timeRange: TimeRange) {
           startDate: startDateTime,
           endDate: endDateTime
         },
-        pagination: { page: 1, count: 50 },
+        pagination: { page: 1, count: 1000 },
       });
       console.log('Time range API response:', result);
       console.log('Number of results returned:', result.results?.length || 0);

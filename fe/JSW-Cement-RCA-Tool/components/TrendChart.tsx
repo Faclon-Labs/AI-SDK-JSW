@@ -47,8 +47,8 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   // Check if this is the TPH section (contains D49 and D5 sensors for Raw Mill)
   const isTPHSection = sensorList.includes('D49') && sensorList.includes('D5');
   
-  // Check if this is Klin section (has legendNames with "Klin feed rate")
-  const isKlinSection = legendNames && legendNames.normal === "Klin feed rate";
+  // Check if this is Kiln section (has legendNames with "Kiln feed rate")
+  const isKlinSection = legendNames && legendNames.normal === "Kiln feed rate";
   
   // Check if this is Cement Mill TPH section (contains D26 sensor or is a TPH section with legendNames, but not Klin)
   const isCementMillTPHSection = (sensorList.includes('D26') || (title.toLowerCase().includes('tph') && legendNames && Object.keys(legendNames).length > 0)) && !isKlinSection;
@@ -76,9 +76,9 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   const isPHF2Section = title.toLowerCase().includes('preheater fan 2') || title.toLowerCase().includes('phf2');
   const isPHFSection = isPHF1Section || isPHF2Section;
   
-  // Check if this is Klin Main Drive section (Klin Main Drive sections with dual-axis plotting)
-  const isKlinMainDrive1Section = title.toLowerCase().includes('klin main drive 1') || title.toLowerCase().includes('klin_main_drive_1');
-  const isKlinMainDrive2Section = title.toLowerCase().includes('klin main drive 2') || title.toLowerCase().includes('klin_main_drive_2');
+  // Check if this is Kiln Main Drive section (Kiln Main Drive sections with dual-axis plotting)
+  const isKlinMainDrive1Section = title.toLowerCase().includes('kiln main drive 1') || title.toLowerCase().includes('klin_main_drive_1');
+  const isKlinMainDrive2Section = title.toLowerCase().includes('kiln main drive 2') || title.toLowerCase().includes('klin_main_drive_2');
   const isKlinMainDriveSection = isKlinMainDrive1Section || isKlinMainDrive2Section;
 
 
@@ -127,16 +127,16 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
             });
           }
           
-          // Special processing for Klin section
+          // Special processing for Kiln section
           if (isKlinSection) {
             processedData = result.data.map((point: DataPoint) => {
-              // For Klin, use the first sensor value as the main feed rate
+              // For Kiln, use the first sensor value as the main feed rate
               const firstSensorId = sensorList[0];
               const sensorValue = parseFloat(point[firstSensorId] || '0');
               
               return {
                 ...point,
-                'Klin feed rate': sensorValue
+                'Kiln feed rate': sensorValue
               };
             });
           }
@@ -220,7 +220,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
             });
           }
           
-          // Special processing for Klin Main Drive sections (dual-axis plotting)
+          // Special processing for Kiln Main Drive sections (dual-axis plotting)
           if (isKlinMainDriveSection) {
             processedData = result.data.map((point: DataPoint) => {
               const processedPoint: any = { ...point };
@@ -307,8 +307,8 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   } else if (isTPHSection) {
     displaySensors = ['Raw mill feed rate'];
   } else if (isKlinSection) {
-    // For Klin section, use Klin feed rate
-    displaySensors = ['Klin feed rate'];
+    // For Kiln section, use Kiln feed rate
+    displaySensors = ['Kiln feed rate'];
   } else if (isCementMillTPH || isCementMillTPHSection) {
     // For cement mill TPH, use the same naming convention as raw mill
     displaySensors = ['Cement mill feed rate'];
@@ -321,7 +321,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
     // For PHF sections, use the legend names or default sensor names
     displaySensors = legendNames ? Object.keys(legendNames) : sensorList;
   } else if (isKlinMainDriveSection) {
-    // For Klin Main Drive sections, use the legend names or default sensor names
+    // For Kiln Main Drive sections, use the legend names or default sensor names
     displaySensors = legendNames ? Object.keys(legendNames) : sensorList;
   } else {
     displaySensors = sensorList;
@@ -338,19 +338,19 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
         return '#3263fc'; // blue for other sections
       }
     }
-    if (sensor === 'Klin feed rate') return '#3263fc'; // blue for Klin (same as raw mill)
+    if (sensor === 'Kiln feed rate') return '#3263fc'; // blue for Kiln (same as raw mill)
     if (sensor === 'Cement mill feed rate') return '#3263fc'; // blue for Cement Mill (same as raw mill)
     if (sensor.startsWith('Quality Area')) return colors[index % colors.length]; // different colors for each quality area
     if (isPHFSection) {
       // For PHF sections, assign specific colors for different sensors
-      if (sensor.includes('Klin Feed') || sensor.includes('D63')) return '#3263fc'; // blue for Klin Feed
+      if (sensor.includes('Kiln Feed') || sensor.includes('D63')) return '#3263fc'; // blue for Kiln Feed
       if (sensor.includes('PH Fan 1') || sensor.includes('D18')) return '#ff8d13'; // orange for PH Fan 1
       if (sensor.includes('PH Fan 2') || sensor.includes('D19')) return '#ff6b6b'; // red for PH Fan 2
     }
     if (isKlinMainDriveSection) {
-      // For Klin Main Drive sections, assign specific colors for different sensors
-      if (sensor.includes('Klin Feed') || sensor.includes('D63')) return '#3263fc'; // blue for Klin Feed
-      if (sensor.includes('Klin RPM') || sensor.includes('D16')) return '#ff8d13'; // orange for Klin RPM
+      // For Kiln Main Drive sections, assign specific colors for different sensors
+      if (sensor.includes('Kiln Feed') || sensor.includes('D63')) return '#3263fc'; // blue for Kiln Feed
+      if (sensor.includes('Kiln RPM') || sensor.includes('D16')) return '#ff8d13'; // orange for Kiln RPM
     }
     return colors[index % colors.length];
   };
@@ -364,7 +364,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
 
   // Function to determine event type based on title and events data
   const getEventType = (): 'RP1' | 'RP2' | 'general' => {
-    // For Klin sections, use the actual event type from events data
+    // For Kiln sections, use the actual event type from events data
     if (isKlinSection && events && events.length > 0) {
       const eventType = events[0].type;
       if (eventType === 'Drop Events') {

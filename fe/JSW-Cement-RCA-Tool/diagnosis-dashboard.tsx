@@ -131,30 +131,51 @@ export default function Component() {
   });
 
   // Add state for maintenance popup
-  const [maintenancePopup, setMaintenancePopup] = useState<{isOpen: boolean, activeTab: 'RP1' | 'RP2' | 'Klin', rp1: any[], rp2: any[], klin: any[]}>({
+  const [maintenancePopup, setMaintenancePopup] = useState<{isOpen: boolean, activeTab: 'RP1' | 'RP2' | 'Klin', rp1: any[], rp2: any[], klin: any[], sectionName?: string}>({
     isOpen: false,
     activeTab: 'RP1',
     rp1: [],
     rp2: [],
-    klin: []
+    klin: [],
+    sectionName: undefined
   });
 
   // Function to open maintenance popup
-  const openMaintenancePopup = (backendData: any, defaultTab: 'RP1' | 'RP2' | 'Klin' = 'RP1') => {
-    const klinData = backendData?.klin_maintance || [];
+  const openMaintenancePopup = (backendData: any, sectionName?: string, defaultTab: 'RP1' | 'RP2' | 'Klin' = 'RP1') => {
+    // For Kiln sections, the backendData is already the Kiln section data, so we access TPH directly
+    // For Cement Mill and Raw Mill sections, data is at backendData.TPH.RP1_maintance and backendData.TPH.RP2_maintance
+    const klinData = backendData?.TPH?.klin_maintance || [];
     const rp1Data = backendData?.TPH?.RP1_maintance || [];
     const rp2Data = backendData?.TPH?.RP2_maintance || [];
     
-    // Determine the default tab based on available data
+    // Determine the default tab based on section name and available data
     let activeTab = defaultTab;
-    if (defaultTab === 'Klin' && klinData.length > 0) {
+    
+    // For Kiln sections, default to Klin tab
+    if (sectionName === "Kiln" || sectionName?.toLowerCase().includes('klin')) {
       activeTab = 'Klin';
-    } else if (klinData.length > 0 && rp1Data.length === 0 && rp2Data.length === 0) {
-      activeTab = 'Klin';
-    } else if (rp1Data.length > 0) {
-      activeTab = 'RP1';
-    } else if (rp2Data.length > 0) {
-      activeTab = 'RP2';
+    }
+    // For Cement Mill and Raw Mill sections, default to RP1 or RP2 based on available data
+    else if (sectionName === "Cement Mill 1" || sectionName === "Raw Mill 1" || 
+             sectionName?.toLowerCase().includes('raw mill') || 
+             sectionName?.toLowerCase().includes('cement mill')) {
+      if (rp1Data.length > 0) {
+        activeTab = 'RP1';
+      } else if (rp2Data.length > 0) {
+        activeTab = 'RP2';
+      }
+    }
+    // Fallback to original logic if section name is not recognized
+    else {
+      if (defaultTab === 'Klin' && klinData.length > 0) {
+        activeTab = 'Klin';
+      } else if (klinData.length > 0 && rp1Data.length === 0 && rp2Data.length === 0) {
+        activeTab = 'Klin';
+      } else if (rp1Data.length > 0) {
+        activeTab = 'RP1';
+      } else if (rp2Data.length > 0) {
+        activeTab = 'RP2';
+      }
     }
     
     setMaintenancePopup({
@@ -162,10 +183,35 @@ export default function Component() {
       activeTab,
       rp1: rp1Data,
       rp2: rp2Data,
-      klin: klinData
+      klin: klinData,
+      sectionName
     });
   };
   const closeMaintenancePopup = () => setMaintenancePopup({ ...maintenancePopup, isOpen: false });
+
+  // Helper function to check if any maintenance data is available
+  const hasMaintenanceData = (backendData: any) => {
+    // Debug: Log the entire backendData structure
+    console.log('Full backendData structure:', backendData);
+    
+    const hasRP1Data = Array.isArray(backendData?.TPH?.RP1_maintance) && backendData.TPH.RP1_maintance.length > 0;
+    const hasRP2Data = Array.isArray(backendData?.TPH?.RP2_maintance) && backendData.TPH.RP2_maintance.length > 0;
+    // For Kiln sections, the backendData is already the Kiln section data, so we access TPH directly
+    const hasKlinData = Array.isArray(backendData?.TPH?.klin_maintance) && backendData.TPH.klin_maintance.length > 0;
+    
+    // Debug logging
+    console.log('Maintenance Data Check:', {
+      hasRP1Data,
+      hasRP2Data,
+      hasKlinData,
+      klinData: backendData?.TPH?.klin_maintance,
+      klinDataLength: backendData?.TPH?.klin_maintance?.length,
+      klinTPHExists: !!backendData?.TPH,
+      result: hasRP1Data || hasRP2Data || hasKlinData
+    });
+    
+    return hasRP1Data || hasRP2Data || hasKlinData;
+  };
 
   // Pass the selected time range to the hook
   const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
@@ -434,7 +480,7 @@ const getHighPowerSubsections = (millType: string) => {
     }
     
     // Special handling for High Power subsections
-    if (["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "OPC Mill Feeding", "Pre Process", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Klin Main Drive 1", "Klin Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(section)) {
+    if (["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "OPC Mill Feeding", "Pre Process", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Kiln Main Drive 1", "Kiln Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(section)) {
       // For High Power subsections, check if the specific subsection has sensor data
       let subsectionData = null;
       let subsectionKey = "";
@@ -482,12 +528,12 @@ const getHighPowerSubsections = (millType: string) => {
           subsectionData = data?.High_Power?.phf2;
           subsectionKey = "phf2";
           break;
-        case "Klin Main Drive 1":
+        case "Kiln Main Drive 1":
         case "Klin_main_drive_1":
           subsectionData = data?.High_Power?.Klin_main_drive_1;
           subsectionKey = "Klin_main_drive_1";
           break;
-        case "Klin Main Drive 2":
+        case "Kiln Main Drive 2":
         case "Klin_main_drive_2":
           subsectionData = data?.High_Power?.Klin_main_drive_2;
           subsectionKey = "Klin_main_drive_2";
@@ -624,11 +670,11 @@ const getHighPowerSubsections = (millType: string) => {
       case "Preheater Fan 2":
         sectionData = data?.High_Power?.phf2;
         break;
-      case "Klin Main Drive 1":
+      case "Kiln Main Drive 1":
       case "Klin_main_drive_1":
         sectionData = data?.High_Power?.Klin_main_drive_1;
         break;
-      case "Klin Main Drive 2":
+      case "Kiln Main Drive 2":
       case "Klin_main_drive_2":
         sectionData = data?.High_Power?.Klin_main_drive_2;
         break;
@@ -640,7 +686,7 @@ const getHighPowerSubsections = (millType: string) => {
     }
     if (typeof sectionData === 'object' && sectionData !== null) {
       // For High Power subsections, check if we have sensor and device data for trend analysis
-      if (["PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Klin Main Drive 1", "Klin Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(section)) {
+      if (["PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Kiln Main Drive 1", "Kiln Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(section)) {
         return !!(sectionData.sensor && sectionData.Device);
       }
       
@@ -2058,15 +2104,10 @@ const getHighPowerSubsections = (millType: string) => {
                                       className="ml-auto relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
                                       onClick={e => {
                                         e.stopPropagation();
-                                        openMaintenancePopup(sortedData[index]?.backendData);
+                                        openMaintenancePopup(sortedData[index]?.backendData, sortedData[index]?.sectionName);
                                       }}
-                                      disabled={
-                                        (!Array.isArray((sortedData[index]?.backendData?.TPH as any)?.RP1_maintance) || 
-                                         (sortedData[index]?.backendData?.TPH as any)?.RP1_maintance?.length === 0) &&
-                                        (!Array.isArray((sortedData[index]?.backendData?.TPH as any)?.RP2_maintance) || 
-                                         (sortedData[index]?.backendData?.TPH as any)?.RP2_maintance?.length === 0)
-                                      }
-                                      title="View maintenance events for RP1 and RP2"
+                                      disabled={!hasMaintenanceData(sortedData[index]?.backendData)}
+                                      title="View maintenance events"
                                     >
                                       <span className="inline-flex items-center gap-1">
                                         stoppages <Wrench className="w-3 h-3 inline-block align-middle text-yellow-800" />
@@ -2088,7 +2129,7 @@ const getHighPowerSubsections = (millType: string) => {
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">
-                                              {sortedData[index]?.sectionName === "Kiln" ? "Klin Feed" : "Single RP Down"}
+                                              {sortedData[index]?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down"}
                                             </h4>
                                             <button
                                               onClick={() => {
@@ -2683,7 +2724,7 @@ const getHighPowerSubsections = (millType: string) => {
             {/* Content */}
             <div className="p-4">
               {/* Check if this is a High Power section */}
-              {["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Klin Main Drive 1", "Klin Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(popupData.section) ? (
+              {["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Kiln Main Drive 1", "Kiln Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(popupData.section) ? (
                 // For High Power sections, show only trend analysis
                 <div className="bg-gray-50 rounded-lg p-4">
                   <h4 className="font-semibold text-gray-900 mb-3">Trend Analysis</h4>
@@ -2829,9 +2870,14 @@ const getHighPowerSubsections = (millType: string) => {
                               // Extract sensor names from phf1 section
                               const phf1Data = popupData.backendData?.High_Power?.phf1;
                               if (phf1Data?.sensor && typeof phf1Data.sensor === 'object') {
-                                return phf1Data.sensor;
+                                // Transform any "Klin" references to "Kiln" in the sensor names
+                                const transformedSensor: { [key: string]: any } = {};
+                                Object.entries(phf1Data.sensor).forEach(([key, value]) => {
+                                  transformedSensor[key] = typeof value === 'string' ? value.replace(/Klin/g, 'Kiln') : value;
+                                });
+                                return transformedSensor;
                               }
-                              return { "D63": "Klin Feed", "D18": "PH Fan 1 KW" };
+                              return { "D63": "Kiln Feed", "D18": "PH Fan 1 KW" };
                             })()}
                             targetValue={(() => {
                               // Extract target value from phf1 section if available
@@ -2872,9 +2918,14 @@ const getHighPowerSubsections = (millType: string) => {
                               // Extract sensor names from phf2 section
                               const phf2Data = popupData.backendData?.High_Power?.phf2;
                               if (phf2Data?.sensor && typeof phf2Data.sensor === 'object') {
-                                return phf2Data.sensor;
+                                // Transform any "Klin" references to "Kiln" in the sensor names
+                                const transformedSensor: { [key: string]: any } = {};
+                                Object.entries(phf2Data.sensor).forEach(([key, value]) => {
+                                  transformedSensor[key] = typeof value === 'string' ? value.replace(/Klin/g, 'Kiln') : value;
+                                });
+                                return transformedSensor;
                               }
-                              return { "D63": "Klin Feed", "D19": "PH Fan 2 KW" };
+                              return { "D63": "Kiln Feed", "D19": "PH Fan 2 KW" };
                             })()}
                             targetValue={(() => {
                               // Extract target value from phf2 section if available
@@ -2888,8 +2939,8 @@ const getHighPowerSubsections = (millType: string) => {
                           />
                         )}
                         
-                        {/* Klin Main Drive 1 Trend Chart */}
-                        {(popupData.section === "Klin Main Drive 1" || popupData.section === "Klin_main_drive_1") && shouldShowTrend(popupData.backendData, "Klin Main Drive 1") && (
+                        {/* Kiln Main Drive 1 Trend Chart */}
+                        {(popupData.section === "Kiln Main Drive 1" || popupData.section === "Klin_main_drive_1") && shouldShowTrend(popupData.backendData, "Kiln Main Drive 1") && (
                           (() => {
                             // Check if TPH data is available
                             const klinMainDrive1Data = popupData.backendData?.High_Power?.Klin_main_drive_1;
@@ -2904,7 +2955,7 @@ const getHighPowerSubsections = (millType: string) => {
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                     </svg>
                                     <h3 className="mt-2 text-sm font-medium text-gray-900">No data available</h3>
-                                    <p className="mt-1 text-sm text-gray-500">TPH data is not available for Klin Main Drive 1</p>
+                                    <p className="mt-1 text-sm text-gray-500">TPH data is not available for Kiln Main Drive 1</p>
                                   </div>
                                 </div>
                               );
@@ -2929,13 +2980,18 @@ const getHighPowerSubsections = (millType: string) => {
                                 })()}
                                 startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
                                 endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
-                                title="Klin Main Drive 1 Trend"
+                                title="Kiln Main Drive 1 Trend"
                                 legendNames={(() => {
                                   // Extract sensor names from Klin_main_drive_1 section
                                   if (klinMainDrive1Data?.sensor && typeof klinMainDrive1Data.sensor === 'object') {
-                                    return klinMainDrive1Data.sensor;
+                                    // Transform any "Klin" references to "Kiln" in the sensor names
+                                    const transformedSensor: { [key: string]: any } = {};
+                                    Object.entries(klinMainDrive1Data.sensor).forEach(([key, value]) => {
+                                      transformedSensor[key] = typeof value === 'string' ? value.replace(/Klin/g, 'Kiln') : value;
+                                    });
+                                    return transformedSensor;
                                   }
-                                  return { "D63": "Klin Feed", "D16": "Klin RPM" };
+                                  return { "D63": "Kiln Feed", "D16": "Kiln RPM" };
                                 })()}
                                 targetValue={(() => {
                                   // Extract target value from Klin_main_drive_1 section if available
@@ -2951,8 +3007,8 @@ const getHighPowerSubsections = (millType: string) => {
                           })()
                         )}
                         
-                        {/* Klin Main Drive 2 Trend Chart */}
-                        {(popupData.section === "Klin Main Drive 2" || popupData.section === "Klin_main_drive_2") && shouldShowTrend(popupData.backendData, "Klin Main Drive 2") && (
+                        {/* Kiln Main Drive 2 Trend Chart */}
+                        {(popupData.section === "Kiln Main Drive 2" || popupData.section === "Klin_main_drive_2") && shouldShowTrend(popupData.backendData, "Kiln Main Drive 2") && (
                           (() => {
                             // Check if TPH data is available
                             const klinMainDrive2Data = popupData.backendData?.High_Power?.Klin_main_drive_2;
@@ -2967,7 +3023,7 @@ const getHighPowerSubsections = (millType: string) => {
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                     </svg>
                                     <h3 className="mt-2 text-sm font-medium text-gray-900">No data available</h3>
-                                    <p className="mt-1 text-sm text-gray-500">TPH data is not available for Klin Main Drive 2</p>
+                                    <p className="mt-1 text-sm text-gray-500">TPH data is not available for Kiln Main Drive 2</p>
                                   </div>
                                 </div>
                               );
@@ -2992,13 +3048,18 @@ const getHighPowerSubsections = (millType: string) => {
                                 })()}
                                 startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
                                 endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
-                                title="Klin Main Drive 2 Trend"
+                                title="Kiln Main Drive 2 Trend"
                                 legendNames={(() => {
                                   // Extract sensor names from Klin_main_drive_2 section
                                   if (klinMainDrive2Data?.sensor && typeof klinMainDrive2Data.sensor === 'object') {
-                                    return klinMainDrive2Data.sensor;
+                                    // Transform any "Klin" references to "Kiln" in the sensor names
+                                    const transformedSensor: { [key: string]: any } = {};
+                                    Object.entries(klinMainDrive2Data.sensor).forEach(([key, value]) => {
+                                      transformedSensor[key] = typeof value === 'string' ? value.replace(/Klin/g, 'Kiln') : value;
+                                    });
+                                    return transformedSensor;
                                   }
-                                  return { "D63": "Klin Feed", "D16": "Klin RPM" };
+                                  return { "D63": "Kiln Feed", "D16": "Kiln RPM" };
                                 })()}
                                 targetValue={(() => {
                                   // Extract target value from Klin_main_drive_2 section if available
@@ -3459,7 +3520,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   const isKlin = popupData.backendData?.sectionName === "Kiln";
                                   if (isKlin) {
                                     return {
-                                      normal: "Klin feed rate",
+                                      normal: "Kiln feed rate",
                                       event: "Drop Events"
                                     };
                                   }
@@ -3538,11 +3599,28 @@ const getHighPowerSubsections = (millType: string) => {
             <div className="p-4">
               <Tabs value={maintenancePopup.activeTab} onValueChange={tab => setMaintenancePopup(p => ({ ...p, activeTab: tab as 'RP1' | 'RP2' | 'Klin' }))}>
                 <TabsList className="mb-4">
-                  <TabsTrigger value="RP1">RP1 Maintenance</TabsTrigger>
-                  <TabsTrigger value="RP2">RP2 Maintenance</TabsTrigger>
-                  <TabsTrigger value="Klin">Klin Maintenance</TabsTrigger>
+                  {/* Show RP1 and RP2 tabs for Cement Mill and Raw Mill */}
+                  {(maintenancePopup.sectionName === "Cement Mill 1" || 
+                    maintenancePopup.sectionName === "Raw Mill 1" || 
+                    maintenancePopup.sectionName?.toLowerCase().includes('raw mill') ||
+                    maintenancePopup.sectionName?.toLowerCase().includes('cement mill')) && (
+                    <>
+                      <TabsTrigger value="RP1">RP1 Maintenance</TabsTrigger>
+                      <TabsTrigger value="RP2">RP2 Maintenance</TabsTrigger>
+                    </>
+                  )}
+                  {/* Show only Klin tab for Kiln sections */}
+                  {(maintenancePopup.sectionName === "Kiln" || 
+                    maintenancePopup.sectionName?.toLowerCase().includes('klin')) && (
+                    <TabsTrigger value="Klin">Klin Maintenance</TabsTrigger>
+                  )}
                 </TabsList>
-                <TabsContent value="RP1">
+                {/* Show RP1 content only for Cement Mill and Raw Mill */}
+                {(maintenancePopup.sectionName === "Cement Mill 1" || 
+                  maintenancePopup.sectionName === "Raw Mill 1" || 
+                  maintenancePopup.sectionName?.toLowerCase().includes('raw mill') ||
+                  maintenancePopup.sectionName?.toLowerCase().includes('cement mill')) && (
+                  <TabsContent value="RP1">
                   {maintenancePopup.rp1.length > 0 ? (
                     <div className="overflow-x-auto max-h-[60vh]">
                       <Table className="min-w-full border rounded-lg">
@@ -3586,8 +3664,14 @@ const getHighPowerSubsections = (millType: string) => {
                   ) : (
                     <p className="text-gray-500">No RP1 maintenance data available.</p>
                   )}
-                </TabsContent>
-                <TabsContent value="RP2">
+                  </TabsContent>
+                )}
+                {/* Show RP2 content only for Cement Mill and Raw Mill */}
+                {(maintenancePopup.sectionName === "Cement Mill 1" || 
+                  maintenancePopup.sectionName === "Raw Mill 1" || 
+                  maintenancePopup.sectionName?.toLowerCase().includes('raw mill') ||
+                  maintenancePopup.sectionName?.toLowerCase().includes('cement mill')) && (
+                  <TabsContent value="RP2">
                   {maintenancePopup.rp2.length > 0 ? (
                     <div className="overflow-x-auto max-h-[60vh]">
                       <Table className="min-w-full border rounded-lg">
@@ -3631,8 +3715,12 @@ const getHighPowerSubsections = (millType: string) => {
                   ) : (
                     <p className="text-gray-500">No RP2 maintenance data available.</p>
                   )}
-                </TabsContent>
-                <TabsContent value="Klin">
+                  </TabsContent>
+                )}
+                {/* Show Klin content only for Kiln sections */}
+                {(maintenancePopup.sectionName === "Kiln" || 
+                  maintenancePopup.sectionName?.toLowerCase().includes('klin')) && (
+                  <TabsContent value="Klin">
                   {maintenancePopup.klin.length > 0 ? (
                     <div className="overflow-x-auto max-h-[60vh]">
                       <Table className="min-w-full border rounded-lg">
@@ -3676,7 +3764,8 @@ const getHighPowerSubsections = (millType: string) => {
                   ) : (
                     <p className="text-gray-500">No Klin maintenance data available.</p>
                   )}
-                </TabsContent>
+                  </TabsContent>
+                )}
               </Tabs>
             </div>
           </div>
