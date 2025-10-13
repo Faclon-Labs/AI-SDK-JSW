@@ -355,14 +355,6 @@ export function useDiagnosticData(timeRange?: TimeRange) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Add timeout to prevent infinite loading
-    const timeoutId = setTimeout(() => {
-      if (loading) {
-        setError('Request timed out after 2 minutes. The external API may be slow. Please try again or check your network connection.');
-        setLoading(false);
-      }
-    }, 120000); // 120 second timeout (2 minutes)
-
     async function fetchAndTransformData() {
       setLoading(true);
       setError(null);
@@ -587,9 +579,6 @@ export function useDiagnosticData(timeRange?: TimeRange) {
     }
     
     fetchAndTransformData();
-    
-    // Cleanup timeout on unmount or dependency change
-    return () => clearTimeout(timeoutId);
   }, [timeRange]); // Add timeRange as dependency
 
   return { diagnosticData, loading, error };
