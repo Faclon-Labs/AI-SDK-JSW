@@ -97,6 +97,149 @@ const formatTimeIST = (value: any): string => {
   }
 };
 
+type StoppageTab = 'rp1' | 'rp2' | 'klin';
+
+type StoppageTabConfig = {
+  moduleId: string;
+  eventId: string;
+};
+
+type SectionStoppageConfig = Partial<Record<StoppageTab, StoppageTabConfig>>;
+
+const STOPPAGE_CONFIG: Record<'rawMill' | 'cementMill' | 'kiln', SectionStoppageConfig> = {
+  rawMill: {
+    rp1: { moduleId: '678a50c6902280ed4cb28950', eventId: '67891251ffe493da50238536' },
+    rp2: { moduleId: '678a50e4968af6eb57edb2e2', eventId: '6789f159a3a2a84d0a7f004b' }
+  },
+  cementMill: {
+    rp1: { moduleId: '678a513ca3a2a842e07f9c15', eventId: '6789f1b654a32dc36a9e4004' },
+    rp2: { moduleId: '678a516654a32d8b069eda79', eventId: '6789f1dd9022808b3db1ea56' }
+  },
+  kiln: {
+    klin: { moduleId: '678a5130968af66961edb33f', eventId: '6789efa254a32d61619e3c5b' }
+  }
+};
+
+const TIME_STRING_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/;
+
+const formatDateParts = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+
+const normalizeTimeString = (value: string | number | Date | null | undefined): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    if (TIME_STRING_REGEX.test(value)) {
+      return value.length === 16 ? `${value}:00` : value;
+    }
+
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) {
+      return formatDateParts(parsed);
+    }
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(typeof value === 'number' ? value : Number(value));
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+  return formatDateParts(date);
+};
+
+const determineSectionKey = (sectionName?: string): keyof typeof STOPPAGE_CONFIG | null => {
+  if (!sectionName) return null;
+  const normalized = sectionName.toLowerCase();
+  if (normalized.includes('kiln') || normalized.includes('klin')) {
+    return 'kiln';
+  }
+  if (normalized.includes('cement')) {
+    return 'cementMill';
+  }
+  if (normalized.includes('raw')) {
+    return 'rawMill';
+  }
+  return null;
+};
+
+const toISOStringIfPossible = (timeStr: string | null): string | null => {
+  if (!timeStr) return null;
+  let formatted = timeStr.trim();
+
+  if (!formatted.includes('T') && formatted.includes(' ')) {
+    formatted = formatted.replace(' ', 'T');
+  }
+
+  if (!formatted.includes('T')) {
+    return null;
+  }
+
+  const timezoneRegex = /([+-]\d{2}:\d{2}|Z)$/i;
+  const hasTimezone = timezoneRegex.test(formatted);
+
+  if (!hasTimezone) {
+    if (!formatted.endsWith('Z')) {
+      formatted = `${formatted}Z`;
+    }
+  }
+
+  const date = new Date(formatted);
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+
+  const offsetMs = (5 * 60 + 30) * 60 * 1000;
+  const adjusted = new Date(date.getTime() - offsetMs);
+  return adjusted.toISOString();
+};
+
+const extractTimeRangeFromBackend = (backendData: any): [string | null, string | null] => {
+  if (!backendData) {
+    return [null, null];
+  }
+
+  const direct = backendData?.query_time;
+  if (Array.isArray(direct) && direct.length >= 2) {
+    return [direct[0], direct[1]];
+  }
+
+  const directAlt = backendData?.queryTime;
+  if (Array.isArray(directAlt) && directAlt.length >= 2) {
+    return [directAlt[0], directAlt[1]];
+  }
+
+  const tphQuery = backendData?.TPH?.query_time;
+  if (Array.isArray(tphQuery) && tphQuery.length >= 2) {
+    return [tphQuery[0], tphQuery[1]];
+  }
+
+  const tphEvents = backendData?.TPH?.events;
+  if (Array.isArray(tphEvents) && tphEvents.length > 0) {
+    let minStart: string | null = null;
+    let maxEnd: string | null = null;
+    tphEvents.forEach((event: any) => {
+      if (event?.start && (!minStart || new Date(event.start) < new Date(minStart))) {
+        minStart = event.start;
+      }
+      if (event?.end && (!maxEnd || new Date(event.end) > new Date(maxEnd))) {
+        maxEnd = event.end;
+      }
+    });
+    return [minStart, maxEnd];
+  }
+
+  return [null, null];
+};
+
 // Function to highlight numbers in text
 const highlightNumbers = (text: any) => {
   if (text === null || text === undefined) return "";
@@ -131,87 +274,182 @@ export default function Component() {
   });
 
   // Add state for maintenance popup
-  const [maintenancePopup, setMaintenancePopup] = useState<{isOpen: boolean, activeTab: 'RP1' | 'RP2' | 'Klin', rp1: any[], rp2: any[], klin: any[], sectionName?: string}>({
+  const [maintenancePopup, setMaintenancePopup] = useState<{
+    isOpen: boolean,
+    activeTab: 'RP1' | 'RP2' | 'Klin',
+    rp1: any[],
+    rp2: any[],
+    klin: any[],
+    sectionName?: string,
+    loading: boolean,
+    error: string | null,
+    timeRange?: { start: string; end: string }
+  }>({
     isOpen: false,
     activeTab: 'RP1',
     rp1: [],
     rp2: [],
     klin: [],
-    sectionName: undefined
+    sectionName: undefined,
+    loading: false,
+    error: null,
+    timeRange: undefined
   });
 
+  const fetchStoppagesForTab = async ({
+    moduleId,
+    eventId,
+    startTime,
+    endTime,
+    limit = 200,
+  }: {
+    moduleId: string;
+    eventId: string;
+    startTime: string;
+    endTime: string;
+    limit?: number;
+  }) => {
+    const response = await fetch('/jsw-rca-new/api/stoppages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        moduleId,
+        eventId,
+        startTime,
+        endTime,
+        limit,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.error || 'Failed to fetch stoppages data');
+    }
+    return payload.data || [];
+  };
+
   // Function to open maintenance popup
-  const openMaintenancePopup = (backendData: any, sectionName?: string, defaultTab: 'RP1' | 'RP2' | 'Klin' = 'RP1') => {
-    // For Kiln sections, the backendData is already the Kiln section data, so we access TPH directly
-    // For Cement Mill and Raw Mill sections, data is at backendData.TPH.RP1_maintance and backendData.TPH.RP2_maintance
-    const klinData = backendData?.TPH?.klin_maintance || [];
-    const rp1Data = backendData?.TPH?.RP1_maintance || [];
-    const rp2Data = backendData?.TPH?.RP2_maintance || [];
-    
-    // Determine the default tab based on section name and available data
-    let activeTab = defaultTab;
-    
-    // For Kiln sections, default to Klin tab
-    if (sectionName === "Kiln" || sectionName?.toLowerCase().includes('klin')) {
+  const openMaintenancePopup = async (backendData: any, sectionName?: string, defaultTab: 'RP1' | 'RP2' | 'Klin' = 'RP1') => {
+    if (!backendData) {
+      console.warn('No backend data available for maintenance popup.');
+      return;
+    }
+
+    const resolvedSectionName = sectionName || backendData?.sectionName || '';
+    const sectionKey = determineSectionKey(resolvedSectionName);
+
+    if (!sectionKey) {
+      console.warn('No stoppage configuration found for section:', resolvedSectionName);
+      return;
+    }
+
+    const [rawStart, rawEnd] = extractTimeRangeFromBackend(backendData);
+    let normalizedStart = normalizeTimeString(rawStart);
+    let normalizedEnd = normalizeTimeString(rawEnd);
+
+    if (!normalizedStart || !normalizedEnd) {
+      console.warn('Falling back to selected range for stoppages query time due to missing per-row range.');
+      normalizedStart = `${selectedRange.startDate} ${selectedRange.startTime || '00:00'}:00`;
+      normalizedEnd = `${selectedRange.endDate} ${selectedRange.endTime || '23:59'}:59`;
+    }
+
+    const apiStartTime = toISOStringIfPossible(normalizedStart);
+    const apiEndTime = toISOStringIfPossible(normalizedEnd);
+
+    let activeTab: 'RP1' | 'RP2' | 'Klin' = defaultTab;
+    if (sectionKey === 'kiln') {
       activeTab = 'Klin';
+    } else if (defaultTab === 'Klin') {
+      activeTab = 'RP1';
     }
-    // For Cement Mill and Raw Mill sections, default to RP1 or RP2 based on available data
-    else if (sectionName === "Cement Mill 1" || sectionName === "Raw Mill 1" || 
-             sectionName?.toLowerCase().includes('raw mill') || 
-             sectionName?.toLowerCase().includes('cement mill')) {
-      if (rp1Data.length > 0) {
-        activeTab = 'RP1';
-      } else if (rp2Data.length > 0) {
-        activeTab = 'RP2';
-      }
-    }
-    // Fallback to original logic if section name is not recognized
-    else {
-      if (defaultTab === 'Klin' && klinData.length > 0) {
-        activeTab = 'Klin';
-      } else if (klinData.length > 0 && rp1Data.length === 0 && rp2Data.length === 0) {
-        activeTab = 'Klin';
-      } else if (rp1Data.length > 0) {
-        activeTab = 'RP1';
-      } else if (rp2Data.length > 0) {
-        activeTab = 'RP2';
-      }
-    }
-    
+
     setMaintenancePopup({
       isOpen: true,
       activeTab,
-      rp1: rp1Data,
-      rp2: rp2Data,
-      klin: klinData,
-      sectionName
+      rp1: [],
+      rp2: [],
+      klin: [],
+      sectionName: resolvedSectionName,
+      loading: true,
+      error: null,
+      timeRange: normalizedStart && normalizedEnd ? { start: normalizedStart, end: normalizedEnd } : undefined,
     });
-  };
-  const closeMaintenancePopup = () => setMaintenancePopup({ ...maintenancePopup, isOpen: false });
 
-  // Helper function to check if any maintenance data is available
-  const hasMaintenanceData = (backendData: any) => {
-    // Debug: Log the entire backendData structure
-    console.log('Full backendData structure:', backendData);
-    
-    const hasRP1Data = Array.isArray(backendData?.TPH?.RP1_maintance) && backendData.TPH.RP1_maintance.length > 0;
-    const hasRP2Data = Array.isArray(backendData?.TPH?.RP2_maintance) && backendData.TPH.RP2_maintance.length > 0;
-    // For Kiln sections, the backendData is already the Kiln section data, so we access TPH directly
-    const hasKlinData = Array.isArray(backendData?.TPH?.klin_maintance) && backendData.TPH.klin_maintance.length > 0;
-    
-    // Debug logging
-    console.log('Maintenance Data Check:', {
-      hasRP1Data,
-      hasRP2Data,
-      hasKlinData,
-      klinData: backendData?.TPH?.klin_maintance,
-      klinDataLength: backendData?.TPH?.klin_maintance?.length,
-      klinTPHExists: !!backendData?.TPH,
-      result: hasRP1Data || hasRP2Data || hasKlinData
-    });
-    
-    return hasRP1Data || hasRP2Data || hasKlinData;
+    const sectionConfig = STOPPAGE_CONFIG[sectionKey];
+
+    try {
+      const [rp1Data, rp2Data, klinData] = await Promise.all([
+        sectionConfig.rp1 && apiStartTime && apiEndTime
+          ? fetchStoppagesForTab({
+              moduleId: sectionConfig.rp1.moduleId,
+              eventId: sectionConfig.rp1.eventId,
+              startTime: apiStartTime,
+              endTime: apiEndTime,
+            })
+          : Promise.resolve([]),
+        sectionConfig.rp2 && apiStartTime && apiEndTime
+          ? fetchStoppagesForTab({
+              moduleId: sectionConfig.rp2.moduleId,
+              eventId: sectionConfig.rp2.eventId,
+              startTime: apiStartTime,
+              endTime: apiEndTime,
+            })
+          : Promise.resolve([]),
+        sectionConfig.klin && apiStartTime && apiEndTime
+          ? fetchStoppagesForTab({
+              moduleId: sectionConfig.klin.moduleId,
+              eventId: sectionConfig.klin.eventId,
+              startTime: apiStartTime,
+              endTime: apiEndTime,
+            })
+          : Promise.resolve([]),
+      ]);
+
+      setMaintenancePopup((prev) => ({
+        ...prev,
+        loading: false,
+        rp1: rp1Data,
+        rp2: rp2Data,
+        klin: klinData,
+      }));
+    } catch (error) {
+      console.error('Failed to load stoppages data:', error);
+      setMaintenancePopup((prev) => ({
+        ...prev,
+        loading: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch stoppages data',
+      }));
+    }
   };
+  const closeMaintenancePopup = () => setMaintenancePopup(prev => ({
+    ...prev,
+    isOpen: false,
+    loading: false,
+    error: null,
+  }));
+
+  const canFetchMaintenanceData = (backendData: any, sectionName?: string) => {
+    if (!backendData) {
+      return false;
+    }
+    const resolvedSectionName = sectionName || backendData?.sectionName;
+    const sectionKey = determineSectionKey(resolvedSectionName);
+    if (!sectionKey) {
+      return false;
+    }
+    const [start, end] = extractTimeRangeFromBackend(backendData);
+    return Boolean(start && end);
+  };
+
+const hasMaintenanceDataInPayload = (backendData: any) => {
+  if (!backendData) {
+    return false;
+  }
+  const rp1 = Array.isArray(backendData?.TPH?.RP1_maintance) ? backendData.TPH.RP1_maintance.length > 0 : false;
+  const rp2 = Array.isArray(backendData?.TPH?.RP2_maintance) ? backendData.TPH.RP2_maintance.length > 0 : false;
+  const klin = Array.isArray(backendData?.TPH?.klin_maintance) ? backendData.TPH.klin_maintance.length > 0 : false;
+  return rp1 || rp2 || klin;
+};
 
   // Pass the selected time range to the hook
   const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
@@ -230,6 +468,27 @@ export default function Component() {
     section: "",
     backendData: null
   })
+
+  const statusRangeDescriptions = {
+    high: 'SPC deviation between 10% and 100%',
+    medium: 'SPC deviation between 5% and 10%',
+    low: 'SPC deviation between 2% and 5%',
+    normal: 'SPC deviation between 0% and 2%',
+  }
+  const statusLegend = [
+    { key: 'high', label: 'High', range: '>10%', color: 'bg-red-400' },
+    { key: 'medium', label: 'Medium', range: '5-10%', color: 'bg-yellow-400' },
+    { key: 'low', label: 'Low', range: '2-5%', color: 'bg-blue-400' },
+    { key: 'normal', label: 'Normal', range: '0-2%', color: 'bg-green-400' },
+  ] as const
+
+  const getStatusTooltip = (item: any) => {
+    const deviation = item?.backendData?.SPC?.deviation
+    if (typeof deviation === 'number') {
+      return `SPC deviation: ${deviation.toFixed(2)}%`
+    }
+    return 'SPC deviation unavailable'
+  }
 
   // Format range for display (dates only, no times)
   const displayRange = `${selectedRange.startDate} - ${selectedRange.endDate}`;
@@ -1728,9 +1987,11 @@ const getHighPowerSubsections = (millType: string) => {
           </Button>
         </div>
 
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2">
           <div
             onClick={() => setSelectedFilter(selectedFilter === "high" ? "all" : "high")}
+            title={statusRangeDescriptions.high}
             className={`cursor-pointer px-4 py-2 rounded-full text-sm font-medium transition-all ${
               selectedFilter === "high" ? "bg-red-500 text-white shadow-md" : "bg-red-100 text-red-700 hover:bg-red-200"
             }`}
@@ -1740,6 +2001,7 @@ const getHighPowerSubsections = (millType: string) => {
 
           <div
             onClick={() => setSelectedFilter(selectedFilter === "medium" ? "all" : "medium")}
+            title={statusRangeDescriptions.medium}
             className={`cursor-pointer px-4 py-2 rounded-full text-sm font-medium transition-all ${
               selectedFilter === "medium"
                 ? "bg-yellow-500 text-white shadow-md"
@@ -1751,6 +2013,7 @@ const getHighPowerSubsections = (millType: string) => {
 
           <div
             onClick={() => setSelectedFilter(selectedFilter === "low" ? "all" : "low")}
+            title={statusRangeDescriptions.low}
             className={`cursor-pointer px-4 py-2 rounded-full text-sm font-medium transition-all ${
               selectedFilter === "low"
                 ? "bg-blue-500 text-white shadow-md"
@@ -1762,6 +2025,7 @@ const getHighPowerSubsections = (millType: string) => {
 
           <div
             onClick={() => setSelectedFilter(selectedFilter === "normal" ? "all" : "normal")}
+            title={statusRangeDescriptions.normal}
             className={`cursor-pointer px-4 py-2 rounded-full text-sm font-medium transition-all ${
               selectedFilter === "normal"
                 ? "bg-green-500 text-white shadow-md"
@@ -1771,6 +2035,16 @@ const getHighPowerSubsections = (millType: string) => {
             Normal ({finalFilteredData.filter((item) => item.status.toLowerCase() === "normal").length})
           </div>
           </div>
+          <div className="flex items-center gap-3 justify-end">
+            {statusLegend.map((legend) => (
+              <div key={legend.key} className="flex items-center gap-1 text-xs text-gray-600">
+                <span className={`w-2.5 h-2.5 rounded-full ${legend.color}`}></span>
+                <span className="font-medium">{legend.label}</span>
+                <span className="text-gray-400">({legend.range})</span>
+              </div>
+            ))}
+          </div>
+        </div>
           
 
         {/* Active Filters Summary */}
@@ -1938,6 +2212,7 @@ const getHighPowerSubsections = (millType: string) => {
                           variant={
                             item.status.toLowerCase() === "high" ? "destructive" : item.status.toLowerCase() === "medium" ? "secondary" : "outline"
                           }
+                          title={getStatusTooltip(item)}
                           className={
                             item.status.toLowerCase() === "high"
                               ? "bg-red-100 text-red-800 hover:bg-red-100 text-base"
@@ -2104,9 +2379,9 @@ const getHighPowerSubsections = (millType: string) => {
                                       className="ml-auto relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
                                       onClick={e => {
                                         e.stopPropagation();
-                                        openMaintenancePopup(sortedData[index]?.backendData, sortedData[index]?.sectionName);
+                                        void openMaintenancePopup(sortedData[index]?.backendData, sortedData[index]?.sectionName);
                                       }}
-                                      disabled={!hasMaintenanceData(sortedData[index]?.backendData)}
+                                      disabled={!hasMaintenanceDataInPayload(sortedData[index]?.backendData)}
                                       title="View maintenance events"
                                     >
                                       <span className="inline-flex items-center gap-1">
@@ -3615,13 +3890,24 @@ const getHighPowerSubsections = (millType: string) => {
                     <TabsTrigger value="Klin">Klin Maintenance</TabsTrigger>
                   )}
                 </TabsList>
-                {/* Show RP1 content only for Cement Mill and Raw Mill */}
-                {(maintenancePopup.sectionName === "Cement Mill 1" || 
-                  maintenancePopup.sectionName === "Raw Mill 1" || 
-                  maintenancePopup.sectionName?.toLowerCase().includes('raw mill') ||
-                  maintenancePopup.sectionName?.toLowerCase().includes('cement mill')) && (
-                  <TabsContent value="RP1">
-                  {maintenancePopup.rp1.length > 0 ? (
+                {maintenancePopup.error && (
+                  <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                    {maintenancePopup.error}
+                  </div>
+                )}
+                {maintenancePopup.loading ? (
+                  <div className="py-6 flex justify-center">
+                    <LumaSpin />
+                  </div>
+                ) : (
+                  <>
+                    {/* Show RP1 content only for Cement Mill and Raw Mill */}
+                    {(maintenancePopup.sectionName === "Cement Mill 1" || 
+                      maintenancePopup.sectionName === "Raw Mill 1" || 
+                      maintenancePopup.sectionName?.toLowerCase().includes('raw mill') ||
+                      maintenancePopup.sectionName?.toLowerCase().includes('cement mill')) && (
+                      <TabsContent value="RP1">
+                      {maintenancePopup.rp1.length > 0 ? (
                     <div className="overflow-x-auto max-h-[60vh]">
                       <Table className="min-w-full border rounded-lg">
                         <TableHeader className="sticky top-0 bg-white z-10">
@@ -3664,15 +3950,15 @@ const getHighPowerSubsections = (millType: string) => {
                   ) : (
                     <p className="text-gray-500">No RP1 maintenance data available.</p>
                   )}
-                  </TabsContent>
-                )}
-                {/* Show RP2 content only for Cement Mill and Raw Mill */}
-                {(maintenancePopup.sectionName === "Cement Mill 1" || 
-                  maintenancePopup.sectionName === "Raw Mill 1" || 
-                  maintenancePopup.sectionName?.toLowerCase().includes('raw mill') ||
-                  maintenancePopup.sectionName?.toLowerCase().includes('cement mill')) && (
-                  <TabsContent value="RP2">
-                  {maintenancePopup.rp2.length > 0 ? (
+                      </TabsContent>
+                    )}
+                    {/* Show RP2 content only for Cement Mill and Raw Mill */}
+                    {(maintenancePopup.sectionName === "Cement Mill 1" || 
+                      maintenancePopup.sectionName === "Raw Mill 1" || 
+                      maintenancePopup.sectionName?.toLowerCase().includes('raw mill') ||
+                      maintenancePopup.sectionName?.toLowerCase().includes('cement mill')) && (
+                      <TabsContent value="RP2">
+                      {maintenancePopup.rp2.length > 0 ? (
                     <div className="overflow-x-auto max-h-[60vh]">
                       <Table className="min-w-full border rounded-lg">
                         <TableHeader className="sticky top-0 bg-white z-10">
@@ -3715,13 +4001,13 @@ const getHighPowerSubsections = (millType: string) => {
                   ) : (
                     <p className="text-gray-500">No RP2 maintenance data available.</p>
                   )}
-                  </TabsContent>
-                )}
-                {/* Show Klin content only for Kiln sections */}
-                {(maintenancePopup.sectionName === "Kiln" || 
-                  maintenancePopup.sectionName?.toLowerCase().includes('klin')) && (
-                  <TabsContent value="Klin">
-                  {maintenancePopup.klin.length > 0 ? (
+                      </TabsContent>
+                    )}
+                    {/* Show Klin content only for Kiln sections */}
+                    {(maintenancePopup.sectionName === "Kiln" || 
+                      maintenancePopup.sectionName?.toLowerCase().includes('klin')) && (
+                      <TabsContent value="Klin">
+                      {maintenancePopup.klin.length > 0 ? (
                     <div className="overflow-x-auto max-h-[60vh]">
                       <Table className="min-w-full border rounded-lg">
                         <TableHeader className="sticky top-0 bg-white z-10">
@@ -3764,7 +4050,9 @@ const getHighPowerSubsections = (millType: string) => {
                   ) : (
                     <p className="text-gray-500">No Klin maintenance data available.</p>
                   )}
-                  </TabsContent>
+                      </TabsContent>
+                    )}
+                  </>
                 )}
               </Tabs>
             </div>
