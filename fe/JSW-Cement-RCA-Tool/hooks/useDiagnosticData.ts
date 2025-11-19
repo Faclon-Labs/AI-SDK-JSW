@@ -289,6 +289,30 @@ interface DiagnosticData {
   };
 }
 
+// Helper function to classify status based on SPC deviation percentage
+// Ranges: Normal: 0-2%, Low: 2-5%, Medium: 5-10%, High: 10-100%
+function classifyStatusByDeviation(deviationPercent: number | undefined): string {
+  if (deviationPercent === undefined || deviationPercent === null || isNaN(deviationPercent)) {
+    return 'N/A';
+  }
+  
+  // Use absolute value for classification
+  const absDeviation = Math.abs(deviationPercent);
+  
+  if (absDeviation >= 0 && absDeviation < 2) {
+    return 'Normal';
+  } else if (absDeviation >= 2 && absDeviation < 5) {
+    return 'Low';
+  } else if (absDeviation >= 5 && absDeviation < 10) {
+    return 'Medium';
+  } else if (absDeviation >= 10 && absDeviation <= 100) {
+    return 'High';
+  } else {
+    // For values > 100%, classify as High
+    return 'High';
+  }
+}
+
 // Helper function to process section data
 function processSectionDataDirectly(sectionData: any, originalResult: any, transformedData: DiagnosticData[], index: number) {
   const sectionKeys = Object.keys(sectionData);
@@ -326,14 +350,16 @@ function processSectionDataDirectly(sectionData: any, originalResult: any, trans
       impact: resultData.SPC?.Impact || 'N/A'
     };
 
-    // Get status and impact from the same source - SPC.Impact
+    // Classify status based on SPC deviation percentage
+    const deviationPercent = resultData.SPC?.deviation;
+    const status = classifyStatusByDeviation(deviationPercent);
     const impactValue = resultData.SPC?.Impact || 'N/A';
     
     const transformedItem = {
       millName: originalResult.resultName || "Raw Mill",
       sectionName: sectionName,
       issue: detectedIssue,
-      status: impactValue,
+      status: status,
       lastUpdated: formattedDate,
       timestamp: originalResult.invocationTime,
       resultName: originalResult.resultName || "Raw Mill",
@@ -470,14 +496,16 @@ export function useDiagnosticData(timeRange?: TimeRange) {
                 impact: resultData.SPC?.Impact || 'N/A'
               };
 
-              // Get status and impact from the same source - SPC.Impact
+              // Classify status based on SPC deviation percentage
+              const deviationPercent = resultData.SPC?.deviation;
+              const status = classifyStatusByDeviation(deviationPercent);
               const impactValue = resultData.SPC?.Impact || 'N/A';
               
               const transformedItem = {
                 millName: result.resultName || "Raw Mill",
                 sectionName: sectionName, // Include the actual section name
                 issue: detectedIssue,
-                status: impactValue,
+                status: status,
                 lastUpdated: formattedDate,
                 timestamp: result.invocationTime, // Raw timestamp
                 resultName: result.resultName || "Raw Mill", // Result name
@@ -525,14 +553,16 @@ export function useDiagnosticData(timeRange?: TimeRange) {
               impact: resultData?.SPC?.Impact || 'N/A'
             };
 
-            // Get status and impact from the same source - SPC.Impact
+            // Classify status based on SPC deviation percentage
+            const deviationPercent = resultData?.SPC?.deviation;
+            const status = classifyStatusByDeviation(deviationPercent);
             const impactValue = resultData?.SPC?.Impact || 'N/A';
             
             transformedData.push({
               millName: result.resultName || "Raw Mill",
               sectionName: "Default", // Default section name for old structure
               issue: detectedIssue,
-              status: impactValue,
+              status: status,
               lastUpdated: formattedDate,
               timestamp: result.invocationTime, // Raw timestamp
               resultName: result.resultName || "Raw Mill", // Result name
