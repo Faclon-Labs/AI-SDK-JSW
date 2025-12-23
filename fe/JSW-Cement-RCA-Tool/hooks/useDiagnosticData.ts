@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import { fetchAllInsightResults, fetchInsightResultsByTimeRange, TimeRange } from '../lib/api';
 
+// Process parameter interface
+export interface ProcessParam {
+  Parameter: string;
+  '<Low%': number;
+  'Target%': number;
+  '>High%': number;
+}
+
 // Custom interface to match the actual payload structure
 interface CustomInsightResult {
   _id: string;
@@ -8,8 +16,10 @@ interface CustomInsightResult {
   insightID: string;
   applicationID: any;
   applicationType: string;
+  process_params?: ProcessParam[];
   result: {
     [section: string]: {
+      process_params?: ProcessParam[];
       TPH?: {
         RP1_maintance?: any[];
         RP2_maintance?: any[];
@@ -154,6 +164,7 @@ interface DiagnosticData {
   lastUpdated: string;
   timestamp: string; // Raw timestamp
   resultName: string; // Result name from backend
+  processParams?: ProcessParam[]; // Process parameters data
   details?: {
     targetSPC?: string;
     daySPC?: string;
@@ -363,13 +374,14 @@ function processSectionDataDirectly(sectionData: any, originalResult: any, trans
       lastUpdated: formattedDate,
       timestamp: originalResult.invocationTime,
       resultName: originalResult.resultName || "Raw Mill",
+      processParams: resultData.process_params || (originalResult as CustomInsightResult).process_params,
       details: {
         ...details,
         impact: impactValue
       },
       backendData: resultData
     };
-    
+
     console.log('Adding transformed item from direct processing:', transformedItem);
     transformedData.push(transformedItem);
   });
@@ -411,13 +423,7 @@ export function useDiagnosticData(timeRange?: TimeRange) {
         results.forEach((result: any, index: number) => {
           // Cast to custom interface to access the result property
           const customResult = result as CustomInsightResult;
-          
-          console.log(`Processing result ${index}:`, customResult);
-          console.log('Result structure:', customResult.result);
-          console.log('Result keys:', Object.keys(customResult));
-          console.log('Has result property:', 'result' in customResult);
-          console.log('Result type:', typeof customResult.result);
-          
+
           // Check if result has the expected structure
           if (!customResult.result) {
             console.warn(`Result ${index} has no result property:`, customResult);
@@ -509,13 +515,14 @@ export function useDiagnosticData(timeRange?: TimeRange) {
                 lastUpdated: formattedDate,
                 timestamp: result.invocationTime, // Raw timestamp
                 resultName: result.resultName || "Raw Mill", // Result name
+                processParams: resultData.process_params || customResult.process_params, // Include process parameters from section or top level
                 details: {
                   ...details,
                   impact: impactValue
                 },
                 backendData: resultData // Include all the detailed backend data
               };
-              
+
               console.log('Adding transformed item:', transformedItem);
               transformedData.push(transformedItem);
             });

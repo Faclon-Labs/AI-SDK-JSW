@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench } from "lucide-react"
+import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, settings, X, Wrench } from "lucide-react"
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useDiagnosticData } from "./hooks/useDiagnosticData"
@@ -151,7 +151,7 @@ export default function Component() {
   const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
   const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "normal" | "all">("all")
   const [selectedSection, setSelectedSection] = useState<string>("all")
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [expandedRows, setExpandedRows] = useState<set<number>>(new set())
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
@@ -537,7 +537,7 @@ export default function Component() {
   }, [diagnosticData]);
 
   const toggleRowExpansion = (index: number) => {
-    const newExpandedRows = new Set(expandedRows)
+    const newExpandedRows = new set(expandedRows)
     if (newExpandedRows.has(index)) {
       newExpandedRows.delete(index)
     } else {
@@ -1070,7 +1070,7 @@ export default function Component() {
       // Add summary sheet with styling
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
       
-      // Set column widths
+      // set column widths
       summarySheet['!cols'] = [
         { width: 20 },
         { width: 15 },
@@ -1455,7 +1455,7 @@ export default function Component() {
     const startDate = new Date(selectedRange.startDate);
     const endDate = new Date(selectedRange.endDate);
     
-    // Set time to start of day for comparison
+    // set time to start of day for comparison
     startDate.setHours(0, 0, 0, 0);
     endDate.setHours(23, 59, 59, 999);
     
@@ -1576,7 +1576,7 @@ export default function Component() {
               <DropdownMenuItem onClick={() => setSelectedSection("all")}>
                 All Sections
               </DropdownMenuItem>
-              {Array.from(new Set(diagnosticData.map(item => item.sectionName))).map((sectionName) => (
+              {Array.from(new set(diagnosticData.map(item => item.sectionName))).map((sectionName) => (
                 <DropdownMenuItem key={sectionName} onClick={() => setSelectedSection(sectionName)}>
                   {sectionName}
                 </DropdownMenuItem>

@@ -4,7 +4,7 @@ import { Button } from './button';
 import { Input } from './input';
 import { DateRange } from 'react-day-picker';
 
-const PRESETS = [
+const PREsetS = [
   'Custom',
   'Today',
   'Yesterday',
@@ -239,7 +239,7 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({ value, onChang
       {/* Left: Presets */}
       <div className="w-44 border-r p-2">
         <ul className="space-y-0.5">
-          {PRESETS.map(preset => (
+          {PREsetS.map(preset => (
             <li key={preset}>
               <button
                 className={`w-full text-left px-2 py-1.5 rounded-md text-sm transition font-medium ${selectedPreset === preset ? 'bg-gray-100 text-blue-600' : 'hover:bg-gray-50'}`}

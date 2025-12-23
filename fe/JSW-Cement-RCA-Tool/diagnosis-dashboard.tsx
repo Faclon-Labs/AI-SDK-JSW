@@ -7,10 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench } from "lucide-react"
+import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, settings, X, Wrench, Info } from "lucide-react"
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { useDiagnosticData } from "./hooks/useDiagnosticData"
+import { useDiagnosticData, ProcessParam } from "./hooks/useDiagnosticData"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import TrendChart from "./components/TrendChart"
 import { TimeRangePicker, TimeRange } from "./components/ui/TimeRangePicker";
@@ -27,6 +27,17 @@ declare module 'jspdf' {
     autoTable: typeof autoTable;
   }
 }
+
+// Helper function to get background color based on Target%
+const getTargetBgColor = (targetPercent: number): string => {
+  if (targetPercent >= 80) {
+    return 'bg-green-100';
+  } else if (targetPercent >= 60) {
+    return 'bg-orange-100';
+  } else {
+    return 'bg-red-100';
+  }
+};
 
 // Utility functions for formatting
 const formatNumber = (value: any): string => {
@@ -295,6 +306,21 @@ export default function Component() {
     error: null,
     timeRange: undefined
   });
+
+  // Add state for parameters popup
+  const [parametersPopup, setParametersPopup] = useState<{
+    isOpen: boolean;
+    dataIndex?: number;
+  }>({
+    isOpen: false,
+    dataIndex: undefined
+  });
+
+  // Add state for parameters sorting
+  const [paramsSortOrder, setParamsSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Add state for info popover
+  const [showParamsInfo, setShowParamsInfo] = useState(false);
 
   const fetchStoppagesForTab = async ({
     moduleId,
@@ -1497,7 +1523,7 @@ const getHighPowerSubsections = (millType: string) => {
       // Add summary sheet with styling
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
       
-      // Set column widths
+      // set column widths
       summarySheet['!cols'] = [
         { width: 20 },
         { width: 15 },
@@ -2037,7 +2063,7 @@ const getHighPowerSubsections = (millType: string) => {
           </div>
           <div className="flex items-center gap-3 justify-end">
             {statusLegend.map((legend) => (
-              <div key={legend.key} className="flex items-center gap-1 text-xs text-gray-600">
+              <div key={legend.key} className="flex items-center gap-1 text-sm text-gray-600">
                 <span className={`w-2.5 h-2.5 rounded-full ${legend.color}`}></span>
                 <span className="font-medium">{legend.label}</span>
                 <span className="text-gray-400">({legend.range})</span>
@@ -2375,20 +2401,35 @@ const getHighPowerSubsections = (millType: string) => {
                                         />
                                       </svg>
                                     </div>
-                                    <Button
-                                      className="ml-auto relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
-                                      onClick={e => {
-                                        e.stopPropagation();
-                                        void openMaintenancePopup(sortedData[index]?.backendData, sortedData[index]?.sectionName);
-                                      }}
-                                      disabled={!hasMaintenanceDataInPayload(sortedData[index]?.backendData)}
-                                      title="View maintenance events"
-                                    >
-                                      <span className="inline-flex items-center gap-1">
-                                        stoppages <Wrench className="w-3 h-3 inline-block align-middle text-yellow-800" />
-                                      </span>
-                                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                                    </Button>
+                                    <div className="ml-auto flex items-center gap-2">
+                                      <Button
+                                        className="relative overflow-hidden transition-all duration-300 ease-in-out bg-blue-50 hover:bg-blue-100 text-blue-800 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          setParametersPopup({ isOpen: true, dataIndex: index });
+                                        }}
+                                        disabled={!sortedData[index]?.processParams || sortedData[index]?.processParams?.length === 0}
+                                        title={sortedData[index]?.processParams && sortedData[index]?.processParams?.length > 0 ? "View process parameters" : "No process parameters available"}
+                                      >
+                                        <span className="inline-flex items-center gap-1">
+                                          Parameters
+                                        </span>
+                                      </Button>
+                                      <Button
+                                        className="relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          void openMaintenancePopup(sortedData[index]?.backendData, sortedData[index]?.sectionName);
+                                        }}
+                                        disabled={!hasMaintenanceDataInPayload(sortedData[index]?.backendData)}
+                                        title="View maintenance events"
+                                      >
+                                        <span className="inline-flex items-center gap-1">
+                                          stoppages <Wrench className="w-3 h-3 inline-block align-middle text-yellow-800" />
+                                        </span>
+                                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                                      </Button>
+                                    </div>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
@@ -4055,6 +4096,117 @@ const getHighPowerSubsections = (millType: string) => {
                   </>
                 )}
               </Tabs>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Parameters Popup Modal */}
+      {parametersPopup.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Process Parameters
+                </h3>
+                <Popover open={showParamsInfo} onOpenChange={setShowParamsInfo}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                      title="View inference logic explanation"
+                    >
+                      <Info className="w-5 h-5 text-blue-600" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-96 p-4" align="start">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm text-gray-900">
+                        Inference Logic (Common for All Parameters)
+                      </h4>
+                      <div className="space-y-2 text-xs text-gray-700">
+                        <div>
+                          <span className="font-semibold">Low (&lt; LSL):</span>
+                          <p className="mt-1">Percentage of data points falling below the Lower set Limit (LSL), indicating under-range operation.</p>
+                        </div>
+                        <div>
+                          <span className="font-semibold">Target (LSL–USL):</span>
+                          <p className="mt-1">Percentage of data points between LSL and USL, representing stable and acceptable operating conditions.</p>
+                        </div>
+                        <div>
+                          <span className="font-semibold">High (&gt; USL):</span>
+                          <p className="mt-1">Percentage of data points above the Upper set Limit (USL), indicating over-range operation.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <button onClick={() => setParametersPopup({ isOpen: false, dataIndex: undefined })} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="overflow-x-auto">
+                <Table className="min-w-full border rounded-lg">
+                  <TableHeader className="bg-gray-100">
+                    <TableRow>
+                      <TableHead className="px-4 py-2 text-left border-b font-semibold">Parameter</TableHead>
+                      <TableHead className="px-4 py-2 text-center border-b font-semibold">{'< Low %'}</TableHead>
+                      <TableHead
+                        className="px-4 py-2 text-center border-b font-semibold cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                        onClick={() => setParamsSortOrder(paramsSortOrder === 'asc' ? 'desc' : 'asc')}
+                        title={`Click to sort ${paramsSortOrder === 'asc' ? 'descending' : 'ascending'}`}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          Target %
+                          <span className="text-xs">
+                            {paramsSortOrder === 'asc' ? '↑' : '↓'}
+                          </span>
+                        </div>
+                      </TableHead>
+                      <TableHead className="px-4 py-2 text-center border-b font-semibold">{"> High %"}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(() => {
+                      // Get process params from the selected data
+                      const selectedData = parametersPopup.dataIndex !== undefined ? sortedData[parametersPopup.dataIndex] : null;
+                      let processParams = selectedData?.processParams;
+
+                      if (!processParams || processParams.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                              No process parameters data available
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
+                      // Sort by Target% based on sort order
+                      const sortedParams = [...processParams].sort((a, b) => {
+                        if (paramsSortOrder === 'asc') {
+                          return a['Target%'] - b['Target%'];
+                        } else {
+                          return b['Target%'] - a['Target%'];
+                        }
+                      });
+
+                      return sortedParams.map((param, index) => (
+                        <TableRow key={index} className={index % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
+                          <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter}</TableCell>
+                          <TableCell className="px-4 py-2 border-b text-center">{param['<Low%'].toFixed(2)}</TableCell>
+                          <TableCell className={`px-4 py-2 border-b text-center ${getTargetBgColor(param['Target%'])}`}>
+                            {param['Target%'].toFixed(2)}
+                          </TableCell>
+                          <TableCell className="px-4 py-2 border-b text-center">{param['>High%'].toFixed(2)}</TableCell>
+                        </TableRow>
+                      ));
+                    })()}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           </div>
         </div>

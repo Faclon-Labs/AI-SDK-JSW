@@ -30,7 +30,7 @@ Run the setup wizard to quickly configure your development environment:
 - Node.js and npm (for Angular/React)
 - Python 3.x and pip (for Python)
 
-### Setup Options
+### setup Options
 
 The setup wizard offers two connector types:
 - **UserID-based connector**: Authentication using user IDs
@@ -46,7 +46,7 @@ You can also choose to include demo applications to help you get started quickly
 
 ## Development Workflow
 
-1. **Setup Environment**: Run the setup wizard to configure your environment
+1. **setup Environment**: Run the setup wizard to configure your environment
    ```bash
    ./setup_wizard.sh
    ```

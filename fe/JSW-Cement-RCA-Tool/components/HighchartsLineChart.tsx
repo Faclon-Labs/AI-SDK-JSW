@@ -872,7 +872,7 @@ export default function HighchartsLineChart({
     plotOptions: {
       line: {
         animation: false,
-        enableMouseTracking: true,
+        enableMousetracking: true,
         connectNulls: false
       },
       series: {
