@@ -47,9 +47,9 @@ export async function POST(request: NextRequest) {
 // Real data fetcher from backend
 async function fetchRealData(deviceId: string, sensorList: string[], startTime: string, endTime: string) {
   try {
-    // Import the DataAccess class dynamically to avoid module resolution issues
+    // Import DataAccess dynamically
     const { DataAccess } = await import('../../../../../connector-userid-ts/dist/index.js');
-    
+
     // Initialize DataAccess with backend configuration
     const dataAccess = new DataAccess({
       userId: BACKEND_CONFIG.userId,
@@ -88,7 +88,15 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
       endTime: endTimeUnix       // Pass Unix timestamp
     });
 
-    console.log('Real backend response:', result);
+    console.log('Real backend response type:', typeof result);
+    console.log('Real backend response is array:', Array.isArray(result));
+    console.log('Real backend response length:', Array.isArray(result) ? result.length : 'N/A');
+
+    // Check if result is empty due to connector error
+    if (!result || (Array.isArray(result) && result.length === 0)) {
+      console.warn('Backend returned empty result, falling back to mock data');
+      return generateMockData(deviceId, sensorList, startTime, endTime);
+    }
 
     // Transform the backend response to match the expected format
     if (result && Array.isArray(result)) {

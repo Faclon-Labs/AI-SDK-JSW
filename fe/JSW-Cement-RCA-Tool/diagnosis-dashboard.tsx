@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, settings, X, Wrench, Info } from "lucide-react"
+import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench, Info, Plus } from "lucide-react"
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useDiagnosticData, ProcessParam } from "./hooks/useDiagnosticData"
@@ -494,6 +494,13 @@ const hasMaintenanceDataInPayload = (backendData: any) => {
     section: "",
     backendData: null
   })
+
+  const [plusPopupData, setPlusPopupData] = useState<{isOpen: boolean, section: string}>({
+    isOpen: false,
+    section: ""
+  })
+
+  const [plusInputValue, setPlusInputValue] = useState("")
 
   const statusRangeDescriptions = {
     high: 'SPC deviation between 10% and 100%',
@@ -1023,6 +1030,21 @@ const getHighPowerSubsections = (millType: string) => {
       section: "",
       backendData: null
     })
+  }
+
+  const openPlusPopup = (section: string) => {
+    setPlusPopupData({
+      isOpen: true,
+      section
+    })
+  }
+
+  const closePlusPopup = () => {
+    setPlusPopupData({
+      isOpen: false,
+      section: ""
+    })
+    setPlusInputValue("")
   }
 
   // Group data by date for PDF report
@@ -2447,7 +2469,21 @@ const getHighPowerSubsections = (millType: string) => {
                                             <h4 className="font-semibold text-gray-900 text-base">
                                               {sortedData[index]?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down"}
                                             </h4>
-                                            <button
+                                            <div className="flex items-center gap-2">
+                                              {/* Plus Icon Button */}
+                                              <button
+                                                onClick={() => openPlusPopup(sortedData[index]?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down")}
+                                                className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                title="Add to comparison"
+                                              >
+                                                <Plus
+                                                  className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
+                                                />
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                              </button>
+
+                                              {/* Chart Icon Button */}
+                                              <button
                                               onClick={() => {
                                                 // For Klin sections, use TPH events
                                                 // For Raw Mill sections, use rampup data
@@ -2492,6 +2528,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
+                                            </div>
                                           </div>
                                           
                                           
@@ -2846,15 +2883,17 @@ const getHighPowerSubsections = (millType: string) => {
                                   <AccordionContent className="px-4 pb-4">
                                     {/* Dynamic component for all mill types */}
                                     <DynamicHighPowerSection
-                                      filteredData={finalFilteredData}
+                                      filteredData={sortedData}
                                       index={index}
                                       selectedMillType={selectedSection}
                                       openPopup={openPopup}
+                                      openPlusPopup={openPlusPopup}
                                       shouldShowTrend={shouldShowTrend}
                                       highlightNumbers={highlightNumbers}
                                       extractDeviceId={extractDeviceId}
                                       extractSensorIds={extractSensorIds}
                                       extractSensorNames={extractSensorNames}
+                                      sortConfig={sortConfig}
                                     />
                                   </AccordionContent>
                                 </AccordionItem>
@@ -4127,7 +4166,7 @@ const getHighPowerSubsections = (millType: string) => {
                       <div className="space-y-2 text-xs text-gray-700">
                         <div>
                           <span className="font-semibold">Low (&lt; LSL):</span>
-                          <p className="mt-1">Percentage of data points falling below the Lower set Limit (LSL), indicating under-range operation.</p>
+                          <p className="mt-1">Percentage of data points falling below the Lower Set Limit (LSL), indicating under-range operation.</p>
                         </div>
                         <div>
                           <span className="font-semibold">Target (LSL–USL):</span>
@@ -4135,7 +4174,7 @@ const getHighPowerSubsections = (millType: string) => {
                         </div>
                         <div>
                           <span className="font-semibold">High (&gt; USL):</span>
-                          <p className="mt-1">Percentage of data points above the Upper set Limit (USL), indicating over-range operation.</p>
+                          <p className="mt-1">Percentage of data points above the Upper Set Limit (USL), indicating over-range operation.</p>
                         </div>
                       </div>
                     </div>
@@ -4206,6 +4245,56 @@ const getHighPowerSubsections = (millType: string) => {
                     })()}
                   </TableBody>
                 </Table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Plus Icon Popup Modal */}
+      {plusPopupData.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white w-[70%] rounded-lg shadow-lg">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {plusPopupData.section}
+              </h3>
+              <button onClick={closePlusPopup} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="plusInput" className="block text-sm font-medium text-gray-700 mb-2">
+                    Add Note
+                  </label>
+                  <Input
+                    id="plusInput"
+                    type="text"
+                    placeholder="Type here..."
+                    value={plusInputValue}
+                    onChange={(e) => setPlusInputValue(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={closePlusPopup}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      // Handle save action here
+                      console.log('Saved value:', plusInputValue);
+                      closePlusPopup();
+                    }}
+                  >
+                    Save
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

@@ -40,11 +40,12 @@ const nextConfig = {
       config.externals = config.externals || [];
       config.externals.push({
         '../../../../../connector-userid-ts/dist/index.js': 'commonjs ../../../../../connector-userid-ts/dist/index.js',
+        'connector-userid-ts': 'commonjs connector-userid-ts',
       });
     }
     return config;
   },
-  serverExternalPackages: ['mqtt', 'connector-userid-ts'],
+  serverExternalPackages: ['mqtt', 'connector-userid-ts', 'socks'],
 }
 
 export default nextConfig

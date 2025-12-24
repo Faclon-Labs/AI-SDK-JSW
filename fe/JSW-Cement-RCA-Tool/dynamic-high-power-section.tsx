@@ -1,15 +1,18 @@
 import React from 'react';
+import { Plus } from 'lucide-react';
 
 interface DynamicHighPowerSectionProps {
   filteredData: any[];
   index: number;
   selectedMillType: string;
   openPopup: (data: any, section: string, backendData: any) => void;
+  openPlusPopup: (section: string) => void;
   shouldShowTrend: (data: any, section: string) => boolean;
   highlightNumbers: (text: any) => React.ReactNode;
   extractDeviceId: (data: any) => string | null;
   extractSensorIds: (data: any, section: string) => string[] | null;
   extractSensorNames: (data: any, section: string) => Record<string, string> | undefined;
+  sortConfig?: { key: string; direction: 'asc' | 'desc' } | null;
 }
 
 export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = ({
@@ -17,11 +20,13 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
   index,
   selectedMillType,
   openPopup,
+  openPlusPopup,
   shouldShowTrend,
   highlightNumbers,
   extractDeviceId,
   extractSensorIds,
-  extractSensorNames
+  extractSensorNames,
+  sortConfig
 }) => {
   // Check if data exists
   if (!filteredData[index]?.backendData?.High_Power) {
@@ -95,35 +100,50 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
           <h4 className={`font-semibold ${theme.text} text-base`}>
             {getDisplayName(key)}
           </h4>
-          <button
-            onClick={() => openPopup(data, getDisplayName(key), filteredData[index]?.backendData)}
-            className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-              shouldShowTrend(filteredData[index].backendData, getDisplayName(key))
-                ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
-                : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
-            }`}
-            title={shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) ? "View trend chart" : "No trend data available"}
-            disabled={!shouldShowTrend(filteredData[index].backendData, getDisplayName(key))}
-          >
-            <svg
-              className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
-              }`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="flex items-center gap-2">
+            {/* Plus Icon Button */}
+            <button
+              onClick={() => openPlusPopup(getDisplayName(key))}
+              className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+              title="Add to comparison"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              <Plus
+                className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
               />
-            </svg>
-            {shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) && (
               <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-            )}
-          </button>
+            </button>
+
+            {/* Chart Icon Button */}
+            <button
+              onClick={() => openPopup(data, getDisplayName(key), filteredData[index]?.backendData)}
+              className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                shouldShowTrend(filteredData[index].backendData, getDisplayName(key))
+                  ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                  : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+              }`}
+              title={shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) ? "View trend chart" : "No trend data available"}
+              disabled={!shouldShowTrend(filteredData[index].backendData, getDisplayName(key))}
+            >
+              <svg
+                className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                  shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                }`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+              {shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) && (
+                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              )}
+            </button>
+          </div>
         </div>
         
         {cause && (
@@ -223,7 +243,93 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
   });
 
   // Render all available sections with consistent UI
-  const sections = Object.entries(highPowerData)
+  // Sort sections based on sortConfig
+  let sortedEntries = Object.entries(highPowerData);
+
+  if (sortConfig) {
+    sortedEntries = sortedEntries.sort(([keyA, dataA], [keyB, dataB]) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortConfig.key) {
+        case 'millName':
+          // Sort by section name
+          aValue = getDisplayName(keyA);
+          bValue = getDisplayName(keyB);
+          break;
+
+        case 'deviation':
+          // Extract deviation percentage from each section
+          const getDeviation = (data: any): number => {
+            if (!data || typeof data !== 'object') return 0;
+            const deviationStr = data.deviation || data.Deviation || '';
+            const match = String(deviationStr).match(/(-?\d+\.?\d*)/);
+            return match ? parseFloat(match[1]) : 0;
+          };
+          aValue = getDeviation(dataA);
+          bValue = getDeviation(dataB);
+          break;
+
+        case 'target':
+          // Extract target value from each section
+          const getTarget = (data: any): number => {
+            if (!data || typeof data !== 'object') return 0;
+            const targetStr = data.target || data.Target || '';
+            const match = String(targetStr).match(/(-?\d+\.?\d*)/);
+            return match ? parseFloat(match[1]) : 0;
+          };
+          aValue = getTarget(dataA);
+          bValue = getTarget(dataB);
+          break;
+
+        case 'daySPC':
+          // Extract actual/day SPC value from each section
+          const getDaySPC = (data: any): number => {
+            if (!data || typeof data !== 'object') return 0;
+            const dayStr = data.actual || data.Actual || data.today || data.Today || '';
+            const match = String(dayStr).match(/(-?\d+\.?\d*)/);
+            return match ? parseFloat(match[1]) : 0;
+          };
+          aValue = getDaySPC(dataA);
+          bValue = getDaySPC(dataB);
+          break;
+
+        case 'impact':
+          // Extract impact/status from each section
+          const getImpact = (data: any): string => {
+            if (!data || typeof data !== 'object') return '';
+            return data.impact || data.Impact || data.status || data.Status || '';
+          };
+          aValue = getImpact(dataA);
+          bValue = getImpact(dataB);
+          break;
+
+        case 'day':
+          // For day sorting, we might not have timestamp in subsections
+          // Use section name as fallback
+          aValue = getDisplayName(keyA);
+          bValue = getDisplayName(keyB);
+          break;
+
+        default:
+          // No sorting for unknown keys
+          return 0;
+      }
+
+      // Sort based on value type
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortConfig.direction === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      } else {
+        return sortConfig.direction === 'asc'
+          ? aValue - bValue
+          : bValue - aValue;
+      }
+    });
+  }
+
+  const sections = sortedEntries
     .map(([key, data]) => {
       const theme = themes[key as keyof typeof themes] || getDefaultTheme();
       return renderSection(key, data, theme);
