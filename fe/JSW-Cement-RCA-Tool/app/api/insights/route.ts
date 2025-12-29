@@ -30,8 +30,9 @@ async function getUserOrganization(): Promise<string> {
     throw new Error('Organization ID not found in user information');
   }
 
-  cachedOrgId = data.data.organisation._id;
-  return cachedOrgId;
+  const orgId: string = data.data.organisation._id;
+  cachedOrgId = orgId;
+  return orgId;
 }
 
 async function retryWithBackoff<T>(

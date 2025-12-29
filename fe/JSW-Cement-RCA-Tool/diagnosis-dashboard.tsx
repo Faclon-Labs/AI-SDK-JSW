@@ -483,7 +483,10 @@ const hasMaintenanceDataInPayload = (backendData: any) => {
   
   const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "normal" | "all">("all")
   const [selectedSection, setSelectedSection] = useState<string>("all")
+  // Initialize with known sections so they're always available in dropdown
+  const [allAvailableSections, setAllAvailableSections] = useState<string[]>(["Kiln", "Raw Mill", "Cement Mill 1"])
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  // Sorting state
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
@@ -999,9 +1002,16 @@ const getHighPowerSubsections = (millType: string) => {
     return false;
   };
 
-  // Debug: Log the payload structure
+  // Update available sections when diagnosticData changes
   useEffect(() => {
-    // Component initialization logic can be added here if needed
+    if (diagnosticData && diagnosticData.length > 0) {
+      const sections = Array.from(new Set(diagnosticData.map(item => item.sectionName)));
+      // Merge with existing sections to preserve all seen sections
+      setAllAvailableSections(prev => {
+        const merged = new Set([...prev, ...sections]);
+        return Array.from(merged);
+      });
+    }
   }, [diagnosticData]);
 
   const toggleRowExpansion = (index: number) => {
@@ -1789,22 +1799,48 @@ const getHighPowerSubsections = (millType: string) => {
     }
   }
 
-  // Sorting function
+  // Sorting function - handles sorting by column
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
-    
+
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
     }
-    
+
     setSortConfig({ key, direction });
   };
 
-  // Sort data function
-  const sortData = (data: any[]) => {
-    if (!sortConfig) return data;
+// Priority mapping for impact sorting (higher number = higher priority)
+  const impactPriority: Record<string, number> = {
+    'high': 4,
+    'medium': 3,
+    'low': 2,
+    'normal': 1
+  };
 
-    return [...data].sort((a, b) => {
+  // STEP 1: First filter the data by section and status
+  const filteredData = React.useMemo(() => {
+    return diagnosticData.filter((item) => {
+      // Apply status filter
+      const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter;
+
+      // Apply section filter
+      let sectionMatch = false;
+      if (selectedSection === "all") {
+        sectionMatch = true;
+      } else {
+        sectionMatch = item.sectionName === selectedSection;
+      }
+
+      return statusMatch && sectionMatch;
+    });
+  }, [diagnosticData, selectedFilter, selectedSection]);
+
+  // STEP 2: Then sort the filtered data
+  const finalFilteredData = React.useMemo(() => {
+    if (!sortConfig) return filteredData;
+
+    return [...filteredData].sort((a, b) => {
       let aValue: any;
       let bValue: any;
 
@@ -1822,12 +1858,13 @@ const getHighPowerSubsections = (millType: string) => {
           bValue = b.backendData?.SPC?.today || 0;
           break;
         case 'deviation':
-          aValue = a.backendData?.SPC?.deviation || 0;
-          bValue = b.backendData?.SPC?.deviation || 0;
+          aValue = Math.abs(a.backendData?.SPC?.deviation || 0);
+          bValue = Math.abs(b.backendData?.SPC?.deviation || 0);
           break;
         case 'impact':
-          aValue = a.status || '';
-          bValue = b.status || '';
+          // Use numeric priority for proper sorting
+          aValue = impactPriority[(a.status || '').toLowerCase()] || 0;
+          bValue = impactPriority[(b.status || '').toLowerCase()] || 0;
           break;
         case 'day':
           aValue = new Date(a.timestamp).getTime();
@@ -1837,45 +1874,29 @@ const getHighPowerSubsections = (millType: string) => {
           return 0;
       }
 
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortConfig.direction === 'asc' 
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
-      } else {
-        return sortConfig.direction === 'asc' 
+      // For impact, always use numeric comparison
+      if (sortConfig.key === 'impact') {
+        return sortConfig.direction === 'asc'
           ? aValue - bValue
           : bValue - aValue;
       }
+
+      // For string values
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortConfig.direction === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+
+      // For numeric values
+      return sortConfig.direction === 'asc'
+        ? aValue - bValue
+        : bValue - aValue;
     });
-  };
+  }, [filteredData, sortConfig]);
 
-  const filteredData = diagnosticData.filter((item) => {
-    // Apply status filter
-    const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter;
-    
-    // Apply section filter
-    let sectionMatch = false;
-    if (selectedSection === "all") {
-      sectionMatch = true;
-    } else {
-      sectionMatch = item.sectionName === selectedSection;
-    }
-    
-    // Note: Date filtering is now handled by the API call, so we don't need to filter here again
-    // This prevents double filtering which could cause data to be lost
-    
-    return statusMatch && sectionMatch;
-  })
-
-  // Use filteredData directly - Klin Main Drive sections are subsections within High Power, not separate rows
-  const finalFilteredData = filteredData;
-
-
-  // Apply sorting to filtered data
-  const sortedData = sortData(finalFilteredData);
-
-  // Create expanded data from sorted data
-  const expandedData = sortedData.reduce((acc, item, index) => {
+  // Create expanded data from sorted filtered data
+  const expandedData = finalFilteredData.reduce((acc, item, index) => {
     acc[index] = {
       targetSPC: item.details?.targetSPC || "N/A",
       daySPC: item.details?.daySPC || "N/A", 
@@ -1981,7 +2002,7 @@ const getHighPowerSubsections = (millType: string) => {
                 <DropdownMenuItem onClick={() => setSelectedSection("all")}>
                   All Sections
                 </DropdownMenuItem>
-                {Array.from(new Set(finalFilteredData.map(item => item.sectionName))).map((sectionName) => (
+                {allAvailableSections.map((sectionName) => (
                   <DropdownMenuItem key={sectionName} onClick={() => setSelectedSection(sectionName)}>
                     {sectionName}
                   </DropdownMenuItem>
@@ -2149,7 +2170,7 @@ const getHighPowerSubsections = (millType: string) => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead 
+                  <TableHead
                     className="w-[200px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('millName')}
                   >
@@ -2162,7 +2183,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('target')}
                   >
@@ -2175,7 +2196,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('daySPC')}
                   >
@@ -2188,7 +2209,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('deviation')}
                   >
@@ -2201,7 +2222,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('impact')}
                   >
@@ -2214,7 +2235,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('day')}
                   >
@@ -2231,8 +2252,8 @@ const getHighPowerSubsections = (millType: string) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedData.map((item, index) => (
-                  <React.Fragment key={index}>
+                {finalFilteredData.map((item, index) => (
+                  <React.Fragment key={`${item.sectionName}-${item.timestamp}`}>
                     <TableRow className="hover:bg-gray-50">
                       <TableCell className="font-medium text-base">{item.sectionName}</TableCell>
                       <TableCell className="text-base text-gray-700">
@@ -2377,12 +2398,13 @@ const getHighPowerSubsections = (millType: string) => {
                             {/* Level 3: Accordions */}
                             <div className="bg-white rounded-lg border">
                               <Accordion
+                                key={`accordion-${item.sectionName}-${item.timestamp}`}
                                 type="multiple"
                                 className="w-full"
                                 defaultValue={(() => {
                                   const baseSections = ["lower-output", "idle-running", "high-power"];
                                   // Add quality section if data exists and is not empty
-                                  const qualityData = sortedData[index]?.backendData?.Qulity as any;
+                                  const qualityData = item?.backendData?.Qulity as any;
                                   console.log('Accordion Debug - Index:', index, 'Quality Data:', qualityData);
                                   
                                   const hasQualityData = qualityData && 
@@ -2401,7 +2423,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   }
 
                                   // Add Kiln section if this is a Kiln section
-                                  if (sortedData[index]?.sectionName === "Kiln") {
+                                  if (item?.sectionName === "Kiln") {
                                     baseSections.push("kiln");
                                     console.log('Accordion Debug - Added kiln to baseSections for Kiln section:', baseSections);
                                   }
@@ -2430,8 +2452,8 @@ const getHighPowerSubsections = (millType: string) => {
                                           e.stopPropagation();
                                           setParametersPopup({ isOpen: true, dataIndex: index });
                                         }}
-                                        disabled={!sortedData[index]?.processParams || sortedData[index]?.processParams?.length === 0}
-                                        title={sortedData[index]?.processParams && sortedData[index]?.processParams?.length > 0 ? "View process parameters" : "No process parameters available"}
+                                        disabled={!item?.processParams || item?.processParams?.length === 0}
+                                        title={item?.processParams && item?.processParams?.length > 0 ? "View process parameters" : "No process parameters available"}
                                       >
                                         <span className="inline-flex items-center gap-1">
                                           Parameters
@@ -2441,9 +2463,9 @@ const getHighPowerSubsections = (millType: string) => {
                                         className="relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
                                         onClick={e => {
                                           e.stopPropagation();
-                                          void openMaintenancePopup(sortedData[index]?.backendData, sortedData[index]?.sectionName);
+                                          void openMaintenancePopup(item?.backendData, item?.sectionName);
                                         }}
-                                        disabled={!hasMaintenanceDataInPayload(sortedData[index]?.backendData)}
+                                        disabled={!hasMaintenanceDataInPayload(item?.backendData)}
                                         title="View maintenance events"
                                       >
                                         <span className="inline-flex items-center gap-1">
@@ -2456,23 +2478,23 @@ const getHighPowerSubsections = (millType: string) => {
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
                                       {/* TPH Cause from backend */}
-                                      {sortedData[index]?.backendData?.TPH?.cause && (
+                                      {item?.backendData?.TPH?.cause && (
                                         <p className="text-gray-700 text-base">
-                                          {highlightNumbers(sortedData[index].backendData.TPH.cause)}
+                                          {highlightNumbers(item.backendData.TPH.cause)}
                                         </p>
                                       )}
 
                                       {/* One RP Down Section */}
-                                      {sortedData[index]?.backendData?.TPH?.one_rp_down && (
+                                      {item?.backendData?.TPH?.one_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">
-                                              {sortedData[index]?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down"}
+                                              {item?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down"}
                                             </h4>
                                             <div className="flex items-center gap-2">
                                               {/* Plus Icon Button */}
                                               <button
-                                                onClick={() => openPlusPopup(sortedData[index]?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down")}
+                                                onClick={() => openPlusPopup(item?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down")}
                                                 className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                 title="Add to comparison"
                                               >
@@ -2487,31 +2509,31 @@ const getHighPowerSubsections = (millType: string) => {
                                               onClick={() => {
                                                 // For Klin sections, use TPH events
                                                 // For Raw Mill sections, use rampup data
-                                                const isKlin = sortedData[index]?.sectionName === "Kiln";
-                                                const isRawMill = sortedData[index]?.sectionName === "Raw Mill 1" || sortedData[index]?.sectionName?.toLowerCase().includes('raw mill');
+                                                const isKlin = item?.sectionName === "Kiln";
+                                                const isRawMill = item?.sectionName === "Raw Mill 1" || item?.sectionName?.toLowerCase().includes('raw mill');
                                                 
                                                 if (isKlin) {
                                                   // Klin: use TPH events
-                                                  openPopup(sortedData[index]?.backendData?.TPH?.events, "TPH Events", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                  openPopup(item?.backendData?.TPH?.events, "TPH Events", {...item?.backendData, sectionName: item?.sectionName});
                                                 } else if (isRawMill) {
                                                   // Raw Mill: use rampup data
-                                                  openPopup(sortedData[index]?.backendData?.TPH?.one_rp_down?.rampup, "Single RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                  openPopup(item?.backendData?.TPH?.one_rp_down?.rampup, "Single RP Down", {...item?.backendData, sectionName: item?.sectionName});
                                                 } else {
                                                   // Default: use TPH events (for other mills)
-                                                  openPopup(sortedData[index]?.backendData?.TPH?.events, "TPH Events", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                  openPopup(item?.backendData?.TPH?.events, "TPH Events", {...item?.backendData, sectionName: item?.sectionName});
                                                 }
                                               }}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Single RP Down")
+                                                hasTrendData(item.backendData, "Single RP Down")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Single RP Down") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Single RP Down")}
+                                              title={hasTrendData(item.backendData, "Single RP Down") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Single RP Down")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Single RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Single RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2524,7 +2546,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Single RP Down") && (
+                                              {hasTrendData(item.backendData, "Single RP Down") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
@@ -2533,8 +2555,8 @@ const getHighPowerSubsections = (millType: string) => {
                                           
                                           
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index]?.backendData?.TPH?.one_rp_down) ? 
-                                              sortedData[index].backendData.TPH.one_rp_down.map((item: any, i: number) => (
+                                            {Array.isArray(item?.backendData?.TPH?.one_rp_down) ? 
+                                              item.backendData.TPH.one_rp_down.map((item: any, i: number) => (
                                                 <div key={`one-rp-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2555,8 +2577,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index]?.backendData?.TPH?.one_rp_down === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH.one_rp_down)
+                                                  {typeof item?.backendData?.TPH?.one_rp_down === 'object' ? 
+                                                    Object.entries(item.backendData.TPH.one_rp_down)
                                                       .filter(([key]) => /^\d+$/.test(key)) // Only numbered keys
                                                       .map(([key, value], j) => (
                                                       <div key={`one-rp-single-${index}-${j}`} className="flex items-start gap-2">
@@ -2570,7 +2592,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-base text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index]?.backendData?.TPH?.one_rp_down))}
+                                                          {highlightNumbers(String(item?.backendData?.TPH?.one_rp_down))}
                                                         </span>
                                                       </div>
                                                     )
@@ -2583,13 +2605,13 @@ const getHighPowerSubsections = (millType: string) => {
                                       )}
 
                                       {/* Both RP Down Section */}
-                                      {sortedData[index]?.backendData?.TPH?.both_rp_down && (
+                                      {item?.backendData?.TPH?.both_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Both RP Down</h4>
                                             <button
                                               onClick={() => {
-                                                const tphData = sortedData[index]?.backendData?.TPH;
+                                                const tphData = item?.backendData?.TPH;
                                                 const bothRpDown = tphData?.both_rp_down;
                                                 const rampupData = bothRpDown?.rampup;
                                                 
@@ -2603,19 +2625,19 @@ const getHighPowerSubsections = (millType: string) => {
                                                 console.log('Both RP Down button clicked - data type:', typeof data);
                                                 console.log('Both RP Down button clicked - is array:', Array.isArray(data));
                                                 
-                                                openPopup(data, "Both RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                openPopup(data, "Both RP Down", {...item?.backendData, sectionName: item?.sectionName});
                                               }}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Both RP Down")
+                                                hasTrendData(item.backendData, "Both RP Down")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Both RP Down")}
+                                              title={hasTrendData(item.backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Both RP Down")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Both RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Both RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2628,14 +2650,14 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Both RP Down") && (
+                                              {hasTrendData(item.backendData, "Both RP Down") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index].backendData.TPH.both_rp_down) ? 
-                                              sortedData[index].backendData.TPH.both_rp_down.map((item: any, i: number) => (
+                                            {Array.isArray(item.backendData.TPH.both_rp_down) ? 
+                                              item.backendData.TPH.both_rp_down.map((item: any, i: number) => (
                                                 <div key={`both-rp-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2656,8 +2678,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index].backendData.TPH.both_rp_down === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH.both_rp_down)
+                                                  {typeof item.backendData.TPH.both_rp_down === 'object' ? 
+                                                    Object.entries(item.backendData.TPH.both_rp_down)
                                                       .filter(([key]) => key !== 'rampup') // Show all keys except rampup (which is handled separately)
                                                       .map(([key, value], j) => (
                                                       <div key={`both-rp-single-${index}-${j}`} className="flex items-start gap-2">
@@ -2671,7 +2693,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index].backendData.TPH.both_rp_down))}
+                                                          {highlightNumbers(String(item.backendData.TPH.both_rp_down))}
                                                         </span>
                                                       </div>
                                                     )
@@ -2685,23 +2707,23 @@ const getHighPowerSubsections = (millType: string) => {
                                       )}
 
                                       {/* Reduced Feed Operations Section */}
-                                      {sortedData[index]?.backendData?.TPH?.["Reduced Feed Operations"] && (
+                                      {item?.backendData?.TPH?.["Reduced Feed Operations"] && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Reduced Feed Operations</h4>
                                             <button
-                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.lowfeed, "Reduced Feed Operations", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName})}
+                                              onClick={() => openPopup(item?.backendData?.TPH?.lowfeed, "Reduced Feed Operations", {...item?.backendData, sectionName: item?.sectionName})}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Reduced Feed Operations")
+                                                hasTrendData(item.backendData, "Reduced Feed Operations")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Reduced Feed Operations") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Reduced Feed Operations")}
+                                              title={hasTrendData(item.backendData, "Reduced Feed Operations") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Reduced Feed Operations")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Reduced Feed Operations") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Reduced Feed Operations") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2714,14 +2736,14 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Reduced Feed Operations") && (
+                                              {hasTrendData(item.backendData, "Reduced Feed Operations") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index].backendData.TPH["Reduced Feed Operations"]) ? 
-                                              sortedData[index].backendData.TPH["Reduced Feed Operations"].map((item: any, i: number) => (
+                                            {Array.isArray(item.backendData.TPH["Reduced Feed Operations"]) ? 
+                                              item.backendData.TPH["Reduced Feed Operations"].map((item: any, i: number) => (
                                                 <div key={`reduced-feed-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2742,8 +2764,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index].backendData.TPH["Reduced Feed Operations"] === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH["Reduced Feed Operations"]).map(([key, value], j: number) => (
+                                                  {typeof item.backendData.TPH["Reduced Feed Operations"] === 'object' ? 
+                                                    Object.entries(item.backendData.TPH["Reduced Feed Operations"]).map(([key, value], j: number) => (
                                                       <div key={`reduced-feed-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-base text-gray-600">
@@ -2755,7 +2777,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index].backendData.TPH["Reduced Feed Operations"]))}
+                                                          {highlightNumbers(String(item.backendData.TPH["Reduced Feed Operations"]))}
                                                         </span>
                                                       </div>
                                                     )
@@ -2770,23 +2792,23 @@ const getHighPowerSubsections = (millType: string) => {
                                       )}
 
                                       {/* Ball Mill Section */}
-                                      {sortedData[index]?.backendData?.TPH?.ball_mill && (
+                                      {item?.backendData?.TPH?.ball_mill && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Ball Mill</h4>
                                             <button
-                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.ball_mill, "Ball Mill", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName})}
+                                              onClick={() => openPopup(item?.backendData?.TPH?.ball_mill, "Ball Mill", {...item?.backendData, sectionName: item?.sectionName})}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Ball Mill")
+                                                hasTrendData(item.backendData, "Ball Mill")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Ball Mill") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Ball Mill")}
+                                              title={hasTrendData(item.backendData, "Ball Mill") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Ball Mill")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Ball Mill") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Ball Mill") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2799,14 +2821,14 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Ball Mill") && (
+                                              {hasTrendData(item.backendData, "Ball Mill") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index].backendData.TPH.ball_mill) ? 
-                                              sortedData[index].backendData.TPH.ball_mill.map((item: any, i: number) => (
+                                            {Array.isArray(item.backendData.TPH.ball_mill) ? 
+                                              item.backendData.TPH.ball_mill.map((item: any, i: number) => (
                                                 <div key={`ball-mill-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2827,8 +2849,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index].backendData.TPH.ball_mill === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH.ball_mill).map(([key, value], j: number) => (
+                                                  {typeof item.backendData.TPH.ball_mill === 'object' ? 
+                                                    Object.entries(item.backendData.TPH.ball_mill).map(([key, value], j: number) => (
                                                       <div key={`ball-mill-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-base text-gray-600">
@@ -2840,7 +2862,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index].backendData.TPH.ball_mill))}
+                                                          {highlightNumbers(String(item.backendData.TPH.ball_mill))}
                                                         </span>
                                                       </div>
                                                     )
@@ -2864,9 +2886,9 @@ const getHighPowerSubsections = (millType: string) => {
                                     <span className="text-gray-900 font-bold text-base">Idle Running</span>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
-                                    {sortedData[index]?.backendData?.idle_running?.cause ? (
+                                    {item?.backendData?.idle_running?.cause ? (
                                       <p className="text-gray-700 text-base">
-                                        {highlightNumbers(sortedData[index].backendData.idle_running.cause)}
+                                        {highlightNumbers(item.backendData.idle_running.cause)}
                                       </p>
                                     ) : (
                                       <p className="text-gray-700 text-base">
@@ -2883,8 +2905,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   <AccordionContent className="px-4 pb-4">
                                     {/* Dynamic component for all mill types */}
                                     <DynamicHighPowerSection
-                                      filteredData={sortedData}
-                                      index={index}
+                                      item={item}
                                       selectedMillType={selectedSection}
                                       openPopup={openPopup}
                                       openPlusPopup={openPlusPopup}
@@ -2893,14 +2914,13 @@ const getHighPowerSubsections = (millType: string) => {
                                       extractDeviceId={extractDeviceId}
                                       extractSensorIds={extractSensorIds}
                                       extractSensorNames={extractSensorNames}
-                                      sortConfig={sortConfig}
                                     />
                                   </AccordionContent>
                                 </AccordionItem>
 
                                 {/* Quality section - only show when Blaine_ or 45_ has data */}
                                 {(() => {
-                                  const qualityData = sortedData[index]?.backendData?.Qulity as any;
+                                  const qualityData = item?.backendData?.Qulity as any;
                                   console.log('Quality Debug - Index:', index, 'Quality Data:', qualityData);
                                   console.log('Quality Debug - 45_ data:', qualityData?.['45_']);
                                   console.log('Quality Debug - Blaine_ data:', qualityData?.['Blaine_']);
@@ -2914,7 +2934,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   // Additional check for specific date 26/06/25 - ensure we don't show empty Quality section
                                   const currentDate = new Date().toLocaleDateString('en-GB');
                                   const isTargetDate = currentDate === '26/06/2025' || 
-                                                      sortedData[index]?.backendData?.query_time?.includes('2025-06-26');
+                                                      item?.backendData?.query_time?.includes('2025-06-26');
                                   
                                   if (isTargetDate && !hasQualityData) {
                                     console.log('Quality Debug - Target date 26/06/25 detected with no quality data, hiding section');
@@ -2942,18 +2962,18 @@ const getHighPowerSubsections = (millType: string) => {
                                               <div className="flex items-center justify-between mb-3">
                                                 <h4 className="font-semibold text-gray-700 text-base">45 Micron</h4>
                                                 <button
-                                                  onClick={() => openPopup(qualityData?.table, "45 Micron", sortedData[index].backendData)}
+                                                  onClick={() => openPopup(qualityData?.table, "45 Micron", item.backendData)}
                                                   className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                    shouldShowTrend(sortedData[index].backendData, "45 Micron")
+                                                    shouldShowTrend(item.backendData, "45 Micron")
                                                       ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                       : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                                   }`}
-                                                  title={shouldShowTrend(sortedData[index].backendData, "45 Micron") ? "View trend chart" : "No trend data available"}
-                                                  disabled={!shouldShowTrend(sortedData[index].backendData, "45 Micron")}
+                                                  title={shouldShowTrend(item.backendData, "45 Micron") ? "View trend chart" : "No trend data available"}
+                                                  disabled={!shouldShowTrend(item.backendData, "45 Micron")}
                                                 >
                                                   <svg
                                                     className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                      shouldShowTrend(sortedData[index].backendData, "45 Micron") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                      shouldShowTrend(item.backendData, "45 Micron") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                     }`}
                                                     fill="none"
                                                     stroke="currentColor"
@@ -2966,7 +2986,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                     />
                                                   </svg>
-                                                  {shouldShowTrend(sortedData[index].backendData, "45 Micron") && (
+                                                  {shouldShowTrend(item.backendData, "45 Micron") && (
                                                     <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                                   )}
                                                 </button>
@@ -2994,18 +3014,18 @@ const getHighPowerSubsections = (millType: string) => {
                                                   {qualityData?.['90_'] ? '90 Micron' : 'Blaine'}
                                                 </h4>
                                                 <button
-                                                  onClick={() => openPopup(qualityData?.table, qualityData?.['90_'] ? "90 Micron" : "Blaine", sortedData[index].backendData)}
+                                                  onClick={() => openPopup(qualityData?.table, qualityData?.['90_'] ? "90 Micron" : "Blaine", item.backendData)}
                                                   className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                    shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")
+                                                    shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")
                                                       ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                       : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                                   }`}
-                                                  title={shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? "View trend chart" : "No trend data available"}
-                                                  disabled={!shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")}
+                                                  title={shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? "View trend chart" : "No trend data available"}
+                                                  disabled={!shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")}
                                                 >
                                                   <svg
                                                     className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                      shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                      shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                     }`}
                                                     fill="none"
                                                     stroke="currentColor"
@@ -3018,7 +3038,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                     />
                                                   </svg>
-                                                  {shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") && (
+                                                  {shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") && (
                                                     <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                                   )}
                                                 </button>
@@ -4210,7 +4230,7 @@ const getHighPowerSubsections = (millType: string) => {
                   <TableBody>
                     {(() => {
                       // Get process params from the selected data
-                      const selectedData = parametersPopup.dataIndex !== undefined ? sortedData[parametersPopup.dataIndex] : null;
+                      const selectedData = parametersPopup.dataIndex !== undefined ? finalFilteredData[parametersPopup.dataIndex] : null;
                       let processParams = selectedData?.processParams;
 
                       if (!processParams || processParams.length === 0) {
