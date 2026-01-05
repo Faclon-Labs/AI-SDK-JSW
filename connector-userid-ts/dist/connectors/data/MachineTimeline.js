@@ -121,7 +121,7 @@ export default class MachineTimeline {
             return (timezoneDate.getTime() - utcDate.getTime()) / (1000 * 60);
         }
         catch (error) {
-            console.warn(`[TIMEZONE OFFSET WARNING] Could not calculate offset for ${timezone}, using 0`);
+            console.warn(`[TIMEZONE OFFset WARNING] Could not calculate offset for ${timezone}, using 0`);
             return 0;
         }
     }

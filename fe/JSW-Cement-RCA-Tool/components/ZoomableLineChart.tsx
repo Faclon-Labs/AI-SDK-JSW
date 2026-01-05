@@ -93,7 +93,7 @@ export default function ZoomableLineChart({ data, lines, title, eventRanges = []
         }
       }
       
-      // Set normal and event data
+      // set normal and event data
       processedPoint.normal = inEvent ? null : mainValue;
       processedPoint.event = inEvent ? mainValue : null;
       

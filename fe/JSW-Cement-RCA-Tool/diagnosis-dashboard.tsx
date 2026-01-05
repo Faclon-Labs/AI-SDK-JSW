@@ -7,10 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench } from "lucide-react"
+import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench, Info, Plus, Pencil } from "lucide-react"
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { useDiagnosticData } from "./hooks/useDiagnosticData"
+import { useDiagnosticData, ProcessParam } from "./hooks/useDiagnosticData"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import TrendChart from "./components/TrendChart"
 import { TimeRangePicker, TimeRange } from "./components/ui/TimeRangePicker";
@@ -27,6 +27,17 @@ declare module 'jspdf' {
     autoTable: typeof autoTable;
   }
 }
+
+// Helper function to get background color based on Target%
+const getTargetBgColor = (targetPercent: number): string => {
+  if (targetPercent >= 80) {
+    return 'bg-green-100';
+  } else if (targetPercent >= 60) {
+    return 'bg-orange-100';
+  } else {
+    return 'bg-red-100';
+  }
+};
 
 // Utility functions for formatting
 const formatNumber = (value: any): string => {
@@ -259,17 +270,25 @@ const highlightNumbers = (text: any) => {
 
 // Note: UTC to IST conversion removed since backend now handles IST timezone directly
 
+// Helper function to format date to YYYY-MM-DD (local time, not UTC)
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function Component() {
-  
+
   // Add state for time picker modal and range
   const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1); // January 1st of current year
-  const endOfYear = new Date(now.getFullYear(), 11, 31); // December 31st of current year
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1); // 1st of current month
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0); // Last day of current month
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [selectedRange, setSelectedRange] = useState<TimeRange>({
-    startDate: startOfYear.toISOString().slice(0, 10),
+    startDate: formatLocalDate(startOfMonth),
     startTime: "00:00",
-    endDate: endOfYear.toISOString().slice(0, 10),
+    endDate: formatLocalDate(endOfMonth),
     endTime: "23:59",
   });
 
@@ -294,6 +313,38 @@ export default function Component() {
     loading: false,
     error: null,
     timeRange: undefined
+  });
+
+  // Add state for parameters popup
+  const [parametersPopup, setParametersPopup] = useState<{
+    isOpen: boolean;
+    dataIndex?: number;
+  }>({
+    isOpen: false,
+    dataIndex: undefined
+  });
+
+  // Add state for parameters sorting
+  const [paramsSortOrder, setParamsSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Add state for info popover
+  const [showParamsInfo, setShowParamsInfo] = useState(false);
+
+  // Add state for user input modal
+  const [userInputModal, setUserInputModal] = useState<{
+    isOpen: boolean;
+    inputValue: string;
+    sectionName: string;
+    dataIndex: number;
+    targetPath: string; // e.g., "TPH.one_rp_down"
+    saving: boolean;
+  }>({
+    isOpen: false,
+    inputValue: '',
+    sectionName: '',
+    dataIndex: -1,
+    targetPath: '',
+    saving: false
   });
 
   const fetchStoppagesForTab = async ({
@@ -452,12 +503,15 @@ const hasMaintenanceDataInPayload = (backendData: any) => {
 };
 
   // Pass the selected time range to the hook
-  const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
+  const { diagnosticData, loading, error, refetch } = useDiagnosticData(selectedRange);
   
   
   const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "normal" | "all">("all")
   const [selectedSection, setSelectedSection] = useState<string>("all")
+  // Initialize with known sections so they're always available in dropdown
+  const [allAvailableSections, setAllAvailableSections] = useState<string[]>(["Kiln", "Raw Mill", "Cement Mill 1"])
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  // Sorting state
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
@@ -468,6 +522,65 @@ const hasMaintenanceDataInPayload = (backendData: any) => {
     section: "",
     backendData: null
   })
+
+  const [plusPopupData, setPlusPopupData] = useState<{
+    isOpen: boolean;
+    section: string;
+    sectionName: string;
+    targetPath: string;
+    _id: string;
+    insightID: string;
+    applicationType: string;
+    saving: boolean;
+    existingBackendData: any; // Store existing data to merge with
+  }>({
+    isOpen: false,
+    section: "",
+    sectionName: "",
+    targetPath: "",
+    _id: "",
+    insightID: "",
+    applicationType: "Workbench",
+    saving: false,
+    existingBackendData: null
+  })
+
+  const [plusInputValue, setPlusInputValue] = useState("")
+
+  // State to store pending user inputs (shown in UI with highlight, not yet saved to DB)
+  // Structure: { [itemId]: { [targetPath]: [{ text: string, id: string }] } }
+  const [pendingUserInputs, setPendingUserInputs] = useState<Record<string, Record<string, Array<{ text: string; id: string }>>>>({});
+
+  // State for delete confirmation popup
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    itemId: string;
+    targetPath: string;
+    inputId: string;
+    inputText: string;
+  }>({
+    isOpen: false,
+    itemId: '',
+    targetPath: '',
+    inputId: '',
+    inputText: ''
+  });
+
+  // State for edit popup
+  const [editPopup, setEditPopup] = useState<{
+    isOpen: boolean;
+    itemId: string;
+    targetPath: string;
+    inputId: string;
+    inputText: string;
+  }>({
+    isOpen: false,
+    itemId: '',
+    targetPath: '',
+    inputId: '',
+    inputText: ''
+  });
+  const [editInputValue, setEditInputValue] = useState('');
 
   const statusRangeDescriptions = {
     high: 'SPC deviation between 10% and 100%',
@@ -522,84 +635,112 @@ const getHighPowerSubsections = (millType: string) => {
   }
   };
 
+  // Helper function to format date to YYYY-MM-DD
+  const formatDateYMD = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Function to get preset name based on current selection
   const getPresetName = (range: TimeRange): string => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    
-    const startDate = new Date(range.startDate);
-    const endDate = new Date(range.endDate);
-    
+
     // Check if it's today
-    if (range.startDate === range.endDate && 
-        range.startDate === today.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+    if (range.startDate === range.endDate &&
+        range.startDate === formatDateYMD(today)) {
       return 'Today';
     }
-    
+
     // Check if it's yesterday
-    if (range.startDate === range.endDate && 
-        range.startDate === yesterday.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+    if (range.startDate === range.endDate &&
+        range.startDate === formatDateYMD(yesterday)) {
       return 'Yesterday';
     }
-    
+
     // Check if it's current week
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - today.getDay());
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
-    
-    if (range.startDate === startOfWeek.toISOString().slice(0, 10) &&
-        range.endDate === endOfWeek.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfWeek) &&
+        range.endDate === formatDateYMD(endOfWeek)) {
       return 'Current Week';
     }
-    
+
     // Check if it's previous week
     const startOfLastWeek = new Date(today);
     startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
     const endOfLastWeek = new Date(startOfLastWeek);
     endOfLastWeek.setDate(startOfLastWeek.getDate() + 6);
-    
-    if (range.startDate === startOfLastWeek.toISOString().slice(0, 10) &&
-        range.endDate === endOfLastWeek.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfLastWeek) &&
+        range.endDate === formatDateYMD(endOfLastWeek)) {
       return 'Previous Week';
     }
-    
+
     // Check if it's previous 7 days
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 7);
-    
-    if (range.startDate === sevenDaysAgo.toISOString().slice(0, 10) &&
-        range.endDate === today.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(sevenDaysAgo) &&
+        range.endDate === formatDateYMD(today)) {
       return 'Previous 7 Days';
     }
-    
+
     // Check if it's current month
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
-    if (range.startDate === startOfMonth.toISOString().slice(0, 10) &&
-        range.endDate === endOfMonth.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfMonth) &&
+        range.endDate === formatDateYMD(endOfMonth)) {
       return 'Current Month';
     }
-    
+
     // Check if it's previous month
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-    
-    if (range.startDate === startOfLastMonth.toISOString().slice(0, 10) &&
-        range.endDate === endOfLastMonth.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfLastMonth) &&
+        range.endDate === formatDateYMD(endOfLastMonth)) {
       return 'Previous Month';
     }
-    
+
+    // Check if it's previous 3 months
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    if (range.startDate === formatDateYMD(threeMonthsAgo) &&
+        range.endDate === formatDateYMD(today)) {
+      return 'Previous 3 Months';
+    }
+
+    // Check if it's previous 12 months
+    const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+    if (range.startDate === formatDateYMD(twelveMonthsAgo) &&
+        range.endDate === formatDateYMD(today)) {
+      return 'Previous 12 Months';
+    }
+
+    // Check if it's current year
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const endOfYear = new Date(now.getFullYear(), 11, 31);
+    if (range.startDate === formatDateYMD(startOfYear) &&
+        range.endDate === formatDateYMD(endOfYear)) {
+      return 'Current Year';
+    }
+
+    // Check if it's previous year
+    const startOfLastYear = new Date(now.getFullYear() - 1, 0, 1);
+    const endOfLastYear = new Date(now.getFullYear() - 1, 11, 31);
+    if (range.startDate === formatDateYMD(startOfLastYear) &&
+        range.endDate === formatDateYMD(endOfLastYear)) {
+      return 'Previous Year';
+    }
+
     return 'Custom';
   };
 
@@ -966,9 +1107,17 @@ const getHighPowerSubsections = (millType: string) => {
     return false;
   };
 
-  // Debug: Log the payload structure
+  // Update available sections when diagnosticData changes
   useEffect(() => {
-    // Component initialization logic can be added here if needed
+    if (diagnosticData && diagnosticData.length > 0) {
+      const sections = Array.from(new Set(diagnosticData.map(item => item.sectionName)))
+        .filter(section => section && section !== "No Data" && section.trim() !== ""); // Filter out "No Data" and empty sections
+      // Merge with existing sections to preserve all seen sections
+      setAllAvailableSections(prev => {
+        const merged = new Set([...prev.filter(s => s !== "No Data" && s.trim() !== ""), ...sections]);
+        return Array.from(merged);
+      });
+    }
   }, [diagnosticData]);
 
   const toggleRowExpansion = (index: number) => {
@@ -997,6 +1146,284 @@ const getHighPowerSubsections = (millType: string) => {
       section: "",
       backendData: null
     })
+  }
+
+  const openPlusPopup = (section: string, sectionName: string = "", targetPath: string = "", _id: string = "", insightID: string = "", applicationType: string = "Workbench", existingBackendData: any = null) => {
+    setPlusPopupData({
+      isOpen: true,
+      section,
+      sectionName,
+      targetPath,
+      _id,
+      insightID,
+      applicationType,
+      saving: false,
+      existingBackendData
+    })
+  }
+
+  const closePlusPopup = () => {
+    setPlusPopupData({
+      isOpen: false,
+      section: "",
+      sectionName: "",
+      targetPath: "",
+      _id: "",
+      insightID: "",
+      applicationType: "Workbench",
+      saving: false,
+      existingBackendData: null
+    })
+    setPlusInputValue("")
+  }
+
+  // Save handler for plus popup - ONLY adds to local state (shows in UI with highlight)
+  // Does NOT save to DB until Update button is clicked
+  const handleSavePlusInput = () => {
+    if (!plusInputValue.trim() || !plusPopupData._id) {
+      console.error('Missing required data for save:', { plusInputValue, plusPopupData });
+      return;
+    }
+
+    const itemId = plusPopupData._id;
+    const targetPath = plusPopupData.targetPath || 'default';
+    const newInput = {
+      text: plusInputValue.trim(),
+      id: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    };
+
+    // Add to pending inputs (shown in UI with highlight, not saved to DB yet)
+    setPendingUserInputs(prev => {
+      const itemInputs = prev[itemId] || {};
+      const pathInputs = itemInputs[targetPath] || [];
+      return {
+        ...prev,
+        [itemId]: {
+          ...itemInputs,
+          [targetPath]: [...pathInputs, newInput]
+        }
+      };
+    });
+
+    console.log('Added pending input (NOT saved to DB yet):', { itemId, targetPath, newInput });
+    closePlusPopup();
+  }
+
+  // Open delete confirmation popup
+  const openDeleteConfirmation = (itemId: string, targetPath: string, inputId: string, inputText: string) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      itemId,
+      targetPath,
+      inputId,
+      inputText
+    });
+  };
+
+  // Close delete confirmation popup
+  const closeDeleteConfirmation = () => {
+    setDeleteConfirmation({
+      isOpen: false,
+      itemId: '',
+      targetPath: '',
+      inputId: '',
+      inputText: ''
+    });
+  };
+
+  // Confirm and delete pending input
+  const confirmDeletePendingInput = () => {
+    const { itemId, targetPath, inputId } = deleteConfirmation;
+
+    setPendingUserInputs(prev => {
+      const itemInputs = prev[itemId];
+      if (!itemInputs) return prev;
+
+      const pathInputs = itemInputs[targetPath];
+      if (!pathInputs) return prev;
+
+      const filteredInputs = pathInputs.filter(input => input.id !== inputId);
+
+      // If no more inputs for this path, remove the path
+      if (filteredInputs.length === 0) {
+        const { [targetPath]: removed, ...remainingPaths } = itemInputs;
+        // If no more paths for this item, remove the item
+        if (Object.keys(remainingPaths).length === 0) {
+          const { [itemId]: removedItem, ...remainingItems } = prev;
+          return remainingItems;
+        }
+        return {
+          ...prev,
+          [itemId]: remainingPaths
+        };
+      }
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...itemInputs,
+          [targetPath]: filteredInputs
+        }
+      };
+    });
+
+    console.log('Deleted pending input:', { itemId, targetPath, inputId });
+    closeDeleteConfirmation();
+  };
+
+  // Open edit popup
+  const openEditPopup = (itemId: string, targetPath: string, inputId: string, inputText: string) => {
+    setEditPopup({
+      isOpen: true,
+      itemId,
+      targetPath,
+      inputId,
+      inputText
+    });
+    setEditInputValue(inputText);
+  };
+
+  // Close edit popup
+  const closeEditPopup = () => {
+    setEditPopup({
+      isOpen: false,
+      itemId: '',
+      targetPath: '',
+      inputId: '',
+      inputText: ''
+    });
+    setEditInputValue('');
+  };
+
+  // Confirm and save edited pending input
+  const confirmEditPendingInput = () => {
+    const { itemId, targetPath, inputId } = editPopup;
+    const newText = editInputValue.trim();
+
+    if (!newText) return;
+
+    setPendingUserInputs(prev => {
+      const itemInputs = prev[itemId];
+      if (!itemInputs) return prev;
+
+      const pathInputs = itemInputs[targetPath];
+      if (!pathInputs) return prev;
+
+      const updatedInputs = pathInputs.map(input =>
+        input.id === inputId ? { ...input, text: newText } : input
+      );
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...itemInputs,
+          [targetPath]: updatedInputs
+        }
+      };
+    });
+
+    console.log('Edited pending input:', { itemId, targetPath, inputId, newText });
+    closeEditPopup();
+  };
+
+  // Save ALL pending inputs to DB - called when Update button is clicked
+  // IMPORTANT: This merges with existing data to avoid data loss
+  const saveAllPendingInputsToDB = async (itemId: string, item: any) => {
+    const itemPendingInputs = pendingUserInputs[itemId];
+    if (!itemPendingInputs || Object.keys(itemPendingInputs).length === 0) {
+      console.log('No pending inputs to save for item:', itemId);
+      // Just refresh data
+      refetch();
+      return;
+    }
+
+    try {
+      const sectionName = item?.sectionName || "Kiln";
+      const existingData = item?.backendData || {};
+
+      // Deep clone the existing backend data to avoid mutations
+      const mergedSectionData = JSON.parse(JSON.stringify(existingData));
+
+      // Find the next available numeric key in the target path
+      const getNextKey = (obj: any): string => {
+        if (!obj || typeof obj !== 'object') return '1';
+        const numericKeys = Object.keys(obj).filter(k => /^\d+$/.test(k)).map(Number);
+        if (numericKeys.length === 0) return '1';
+        return String(Math.max(...numericKeys) + 1);
+      };
+
+      // Add all pending inputs for each target path
+      for (const [targetPath, inputs] of Object.entries(itemPendingInputs)) {
+        if (targetPath === 'default') continue;
+
+        const pathParts = targetPath.split('.');
+        let current = mergedSectionData;
+
+        // Navigate/create the path
+        for (let i = 0; i < pathParts.length; i++) {
+          const part = pathParts[i];
+          if (i === pathParts.length - 1) {
+            // Last part - this is where we add the new values
+            if (!current[part] || typeof current[part] !== 'object') {
+              current[part] = {};
+            }
+            // Add all pending inputs for this path
+            for (const input of inputs) {
+              const nextKey = getNextKey(current[part]);
+              current[part][nextKey] = input.text;
+            }
+          } else {
+            // Intermediate part - ensure object exists
+            if (!current[part] || typeof current[part] !== 'object') {
+              current[part] = {};
+            }
+            current = current[part];
+          }
+        }
+      }
+
+      // Build the final result with the section name
+      const result: Record<string, any> = {
+        [sectionName]: mergedSectionData
+      };
+
+      const payload = {
+        _id: itemId,
+        insightID: item?.insightID || '',
+        applicationType: item?.applicationType || 'Workbench',
+        result
+      };
+
+      console.log('Saving ALL pending inputs to DB with MERGED payload:', payload);
+
+      const response = await fetch('/jsw-rca-new/api/insights/update', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('Successfully saved all pending inputs to DB:', data);
+        // Clear pending inputs for this item after successful save
+        setPendingUserInputs(prev => {
+          const newState = { ...prev };
+          delete newState[itemId];
+          return newState;
+        });
+        // Refresh data to show updated content without highlights
+        refetch();
+      } else {
+        console.error('Failed to save pending inputs:', data.error);
+        alert('Failed to save: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error saving pending inputs:', error);
+      alert('Error saving. Please try again.');
+    }
   }
 
   // Group data by date for PDF report
@@ -1497,7 +1924,7 @@ const getHighPowerSubsections = (millType: string) => {
       // Add summary sheet with styling
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
       
-      // Set column widths
+      // set column widths
       summarySheet['!cols'] = [
         { width: 20 },
         { width: 15 },
@@ -1741,22 +2168,48 @@ const getHighPowerSubsections = (millType: string) => {
     }
   }
 
-  // Sorting function
+  // Sorting function - handles sorting by column
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
-    
+
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
     }
-    
+
     setSortConfig({ key, direction });
   };
 
-  // Sort data function
-  const sortData = (data: any[]) => {
-    if (!sortConfig) return data;
+// Priority mapping for impact sorting (higher number = higher priority)
+  const impactPriority: Record<string, number> = {
+    'high': 4,
+    'medium': 3,
+    'low': 2,
+    'normal': 1
+  };
 
-    return [...data].sort((a, b) => {
+  // STEP 1: First filter the data by section and status
+  const filteredData = React.useMemo(() => {
+    return diagnosticData.filter((item) => {
+      // Apply status filter
+      const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter;
+
+      // Apply section filter
+      let sectionMatch = false;
+      if (selectedSection === "all") {
+        sectionMatch = true;
+      } else {
+        sectionMatch = item.sectionName === selectedSection;
+      }
+
+      return statusMatch && sectionMatch;
+    });
+  }, [diagnosticData, selectedFilter, selectedSection]);
+
+  // STEP 2: Then sort the filtered data
+  const finalFilteredData = React.useMemo(() => {
+    if (!sortConfig) return filteredData;
+
+    return [...filteredData].sort((a, b) => {
       let aValue: any;
       let bValue: any;
 
@@ -1774,12 +2227,13 @@ const getHighPowerSubsections = (millType: string) => {
           bValue = b.backendData?.SPC?.today || 0;
           break;
         case 'deviation':
-          aValue = a.backendData?.SPC?.deviation || 0;
-          bValue = b.backendData?.SPC?.deviation || 0;
+          aValue = Math.abs(a.backendData?.SPC?.deviation || 0);
+          bValue = Math.abs(b.backendData?.SPC?.deviation || 0);
           break;
         case 'impact':
-          aValue = a.status || '';
-          bValue = b.status || '';
+          // Use numeric priority for proper sorting
+          aValue = impactPriority[(a.status || '').toLowerCase()] || 0;
+          bValue = impactPriority[(b.status || '').toLowerCase()] || 0;
           break;
         case 'day':
           aValue = new Date(a.timestamp).getTime();
@@ -1789,45 +2243,29 @@ const getHighPowerSubsections = (millType: string) => {
           return 0;
       }
 
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortConfig.direction === 'asc' 
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
-      } else {
-        return sortConfig.direction === 'asc' 
+      // For impact, always use numeric comparison
+      if (sortConfig.key === 'impact') {
+        return sortConfig.direction === 'asc'
           ? aValue - bValue
           : bValue - aValue;
       }
+
+      // For string values
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortConfig.direction === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+
+      // For numeric values
+      return sortConfig.direction === 'asc'
+        ? aValue - bValue
+        : bValue - aValue;
     });
-  };
+  }, [filteredData, sortConfig]);
 
-  const filteredData = diagnosticData.filter((item) => {
-    // Apply status filter
-    const statusMatch = selectedFilter === "all" || item.status.toLowerCase() === selectedFilter;
-    
-    // Apply section filter
-    let sectionMatch = false;
-    if (selectedSection === "all") {
-      sectionMatch = true;
-    } else {
-      sectionMatch = item.sectionName === selectedSection;
-    }
-    
-    // Note: Date filtering is now handled by the API call, so we don't need to filter here again
-    // This prevents double filtering which could cause data to be lost
-    
-    return statusMatch && sectionMatch;
-  })
-
-  // Use filteredData directly - Klin Main Drive sections are subsections within High Power, not separate rows
-  const finalFilteredData = filteredData;
-
-
-  // Apply sorting to filtered data
-  const sortedData = sortData(finalFilteredData);
-
-  // Create expanded data from sorted data
-  const expandedData = sortedData.reduce((acc, item, index) => {
+  // Create expanded data from sorted filtered data
+  const expandedData = finalFilteredData.reduce((acc, item, index) => {
     acc[index] = {
       targetSPC: item.details?.targetSPC || "N/A",
       daySPC: item.details?.daySPC || "N/A", 
@@ -1933,7 +2371,7 @@ const getHighPowerSubsections = (millType: string) => {
                 <DropdownMenuItem onClick={() => setSelectedSection("all")}>
                   All Sections
                 </DropdownMenuItem>
-                {Array.from(new Set(finalFilteredData.map(item => item.sectionName))).map((sectionName) => (
+                {allAvailableSections.map((sectionName) => (
                   <DropdownMenuItem key={sectionName} onClick={() => setSelectedSection(sectionName)}>
                     {sectionName}
                   </DropdownMenuItem>
@@ -1943,9 +2381,10 @@ const getHighPowerSubsections = (millType: string) => {
             {selectedSection !== "all" && (
               <button
                 onClick={() => setSelectedSection("all")}
-                className="text-sm text-blue-600 hover:text-blue-800 underline"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 bg-white hover:bg-red-50 border border-gray-200 rounded-md shadow-sm transition-colors"
               >
-                Clear Section Filter
+                <X className="w-3.5 h-3.5" />
+                Clear Filter
               </button>
             )}
           </div>
@@ -2035,12 +2474,12 @@ const getHighPowerSubsections = (millType: string) => {
             Normal ({finalFilteredData.filter((item) => item.status.toLowerCase() === "normal").length})
           </div>
           </div>
-          <div className="flex items-center gap-3 justify-end">
+          <div className="flex items-center gap-4 justify-end">
             {statusLegend.map((legend) => (
-              <div key={legend.key} className="flex items-center gap-1 text-xs text-gray-600">
-                <span className={`w-2.5 h-2.5 rounded-full ${legend.color}`}></span>
+              <div key={legend.key} className="flex items-center gap-1.5 text-sm text-gray-600">
+                <span className={`w-3 h-3 rounded-full ${legend.color}`}></span>
                 <span className="font-medium">{legend.label}</span>
-                <span className="text-gray-400">({legend.range})</span>
+                <span className="text-gray-500">({legend.range})</span>
               </div>
             ))}
           </div>
@@ -2101,7 +2540,7 @@ const getHighPowerSubsections = (millType: string) => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead 
+                  <TableHead
                     className="w-[200px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('millName')}
                   >
@@ -2114,7 +2553,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('target')}
                   >
@@ -2127,7 +2566,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('daySPC')}
                   >
@@ -2140,7 +2579,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('deviation')}
                   >
@@ -2153,7 +2592,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('impact')}
                   >
@@ -2166,7 +2605,7 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('day')}
                   >
@@ -2183,8 +2622,8 @@ const getHighPowerSubsections = (millType: string) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedData.map((item, index) => (
-                  <React.Fragment key={index}>
+                {finalFilteredData.map((item, index) => (
+                  <React.Fragment key={`${item.sectionName}-${item.timestamp}`}>
                     <TableRow className="hover:bg-gray-50">
                       <TableCell className="font-medium text-base">{item.sectionName}</TableCell>
                       <TableCell className="text-base text-gray-700">
@@ -2329,12 +2768,13 @@ const getHighPowerSubsections = (millType: string) => {
                             {/* Level 3: Accordions */}
                             <div className="bg-white rounded-lg border">
                               <Accordion
+                                key={`accordion-${item.sectionName}-${item.timestamp}`}
                                 type="multiple"
                                 className="w-full"
                                 defaultValue={(() => {
                                   const baseSections = ["lower-output", "idle-running", "high-power"];
                                   // Add quality section if data exists and is not empty
-                                  const qualityData = sortedData[index]?.backendData?.Qulity as any;
+                                  const qualityData = item?.backendData?.Qulity as any;
                                   console.log('Accordion Debug - Index:', index, 'Quality Data:', qualityData);
                                   
                                   const hasQualityData = qualityData && 
@@ -2353,7 +2793,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   }
 
                                   // Add Kiln section if this is a Kiln section
-                                  if (sortedData[index]?.sectionName === "Kiln") {
+                                  if (item?.sectionName === "Kiln") {
                                     baseSections.push("kiln");
                                     console.log('Accordion Debug - Added kiln to baseSections for Kiln section:', baseSections);
                                   }
@@ -2375,66 +2815,126 @@ const getHighPowerSubsections = (millType: string) => {
                                         />
                                       </svg>
                                     </div>
-                                    <Button
-                                      className="ml-auto relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
-                                      onClick={e => {
-                                        e.stopPropagation();
-                                        void openMaintenancePopup(sortedData[index]?.backendData, sortedData[index]?.sectionName);
-                                      }}
-                                      disabled={!hasMaintenanceDataInPayload(sortedData[index]?.backendData)}
-                                      title="View maintenance events"
-                                    >
-                                      <span className="inline-flex items-center gap-1">
-                                        stoppages <Wrench className="w-3 h-3 inline-block align-middle text-yellow-800" />
-                                      </span>
-                                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                                    </Button>
+                                    <div className="ml-auto flex items-center gap-2">
+                                      {/* Update Button - Only visible when there are pending inputs */}
+                                      {pendingUserInputs[item?._id] && Object.keys(pendingUserInputs[item?._id] || {}).length > 0 && (
+                                        <Button
+                                          className="relative overflow-hidden transition-all duration-300 ease-in-out bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-5 py-1.5 shadow-lg hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 group text-sm min-w-[100px] animate-pulse ring-2 ring-green-300 ring-offset-1"
+                                          onClick={e => {
+                                            e.stopPropagation();
+                                            // Save all pending inputs to DB, then refresh
+                                            saveAllPendingInputsToDB(item?._id, item);
+                                            console.log('Update clicked - saving pending inputs to DB');
+                                          }}
+                                          title="Save pending inputs to database"
+                                        >
+                                          <span className="inline-flex items-center gap-2">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                            </svg>
+                                            Update
+                                            <span className="bg-white text-green-600 text-xs px-1.5 py-0.5 rounded-full font-bold">
+                                              {Object.values(pendingUserInputs[item?._id] || {}).flat().length}
+                                            </span>
+                                          </span>
+                                        </Button>
+                                      )}
+                                      <Button
+                                        className="relative overflow-hidden transition-all duration-300 ease-in-out bg-blue-50 hover:bg-blue-100 text-blue-800 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          setParametersPopup({ isOpen: true, dataIndex: index });
+                                        }}
+                                        disabled={!item?.processParams || item?.processParams?.length === 0}
+                                        title={item?.processParams && item?.processParams?.length > 0 ? "View process parameters" : "No process parameters available"}
+                                      >
+                                        <span className="inline-flex items-center gap-1">
+                                          Parameters
+                                        </span>
+                                      </Button>
+                                      <Button
+                                        className="relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          void openMaintenancePopup(item?.backendData, item?.sectionName);
+                                        }}
+                                        disabled={!hasMaintenanceDataInPayload(item?.backendData)}
+                                        title="View maintenance events"
+                                      >
+                                        <span className="inline-flex items-center gap-1">
+                                          stoppages <Wrench className="w-3 h-3 inline-block align-middle text-yellow-800" />
+                                        </span>
+                                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                                      </Button>
+                                    </div>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
                                       {/* TPH Cause from backend */}
-                                      {sortedData[index]?.backendData?.TPH?.cause && (
+                                      {item?.backendData?.TPH?.cause && (
                                         <p className="text-gray-700 text-base">
-                                          {highlightNumbers(sortedData[index].backendData.TPH.cause)}
+                                          {highlightNumbers(item.backendData.TPH.cause)}
                                         </p>
                                       )}
 
                                       {/* One RP Down Section */}
-                                      {sortedData[index]?.backendData?.TPH?.one_rp_down && (
+                                      {item?.backendData?.TPH?.one_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">
-                                              {sortedData[index]?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down"}
+                                              {item?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down"}
                                             </h4>
-                                            <button
+                                            <div className="flex items-center gap-2">
+                                              {/* Plus Icon Button */}
+                                              <button
+                                                onClick={() => openPlusPopup(
+                                                  item?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down",
+                                                  item?.sectionName || "Kiln",
+                                                  "TPH.one_rp_down",
+                                                  item?._id || "",
+                                                  item?.insightID || "",
+                                                  item?.applicationType || "Workbench",
+                                                  item?.backendData || {}
+                                                )}
+                                                className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                title="Add user note"
+                                              >
+                                                <Plus
+                                                  className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
+                                                />
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                              </button>
+
+                                              {/* Chart Icon Button */}
+                                              <button
                                               onClick={() => {
                                                 // For Klin sections, use TPH events
                                                 // For Raw Mill sections, use rampup data
-                                                const isKlin = sortedData[index]?.sectionName === "Kiln";
-                                                const isRawMill = sortedData[index]?.sectionName === "Raw Mill 1" || sortedData[index]?.sectionName?.toLowerCase().includes('raw mill');
+                                                const isKlin = item?.sectionName === "Kiln";
+                                                const isRawMill = item?.sectionName === "Raw Mill 1" || item?.sectionName?.toLowerCase().includes('raw mill');
                                                 
                                                 if (isKlin) {
                                                   // Klin: use TPH events
-                                                  openPopup(sortedData[index]?.backendData?.TPH?.events, "TPH Events", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                  openPopup(item?.backendData?.TPH?.events, "TPH Events", {...item?.backendData, sectionName: item?.sectionName});
                                                 } else if (isRawMill) {
                                                   // Raw Mill: use rampup data
-                                                  openPopup(sortedData[index]?.backendData?.TPH?.one_rp_down?.rampup, "Single RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                  openPopup(item?.backendData?.TPH?.one_rp_down?.rampup, "Single RP Down", {...item?.backendData, sectionName: item?.sectionName});
                                                 } else {
                                                   // Default: use TPH events (for other mills)
-                                                  openPopup(sortedData[index]?.backendData?.TPH?.events, "TPH Events", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                  openPopup(item?.backendData?.TPH?.events, "TPH Events", {...item?.backendData, sectionName: item?.sectionName});
                                                 }
                                               }}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Single RP Down")
+                                                hasTrendData(item.backendData, "Single RP Down")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Single RP Down") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Single RP Down")}
+                                              title={hasTrendData(item.backendData, "Single RP Down") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Single RP Down")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Single RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Single RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2447,16 +2947,17 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Single RP Down") && (
+                                              {hasTrendData(item.backendData, "Single RP Down") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
+                                            </div>
                                           </div>
                                           
                                           
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index]?.backendData?.TPH?.one_rp_down) ? 
-                                              sortedData[index].backendData.TPH.one_rp_down.map((item: any, i: number) => (
+                                            {Array.isArray(item?.backendData?.TPH?.one_rp_down) ? 
+                                              item.backendData.TPH.one_rp_down.map((item: any, i: number) => (
                                                 <div key={`one-rp-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2477,8 +2978,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index]?.backendData?.TPH?.one_rp_down === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH.one_rp_down)
+                                                  {typeof item?.backendData?.TPH?.one_rp_down === 'object' ? 
+                                                    Object.entries(item.backendData.TPH.one_rp_down)
                                                       .filter(([key]) => /^\d+$/.test(key)) // Only numbered keys
                                                       .map(([key, value], j) => (
                                                       <div key={`one-rp-single-${index}-${j}`} className="flex items-start gap-2">
@@ -2492,11 +2993,35 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-base text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index]?.backendData?.TPH?.one_rp_down))}
+                                                          {highlightNumbers(String(item?.backendData?.TPH?.one_rp_down))}
                                                         </span>
                                                       </div>
                                                     )
                                                   }
+                                                  {/* Show pending user inputs with sky blue highlight */}
+                                                  {pendingUserInputs[item?._id]?.['TPH.one_rp_down']?.map((pendingInput) => (
+                                                    <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                                      <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                                      <span className="text-base text-sky-700 font-medium flex-1">
+                                                        {pendingInput.text}
+                                                      </span>
+                                                      <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                                      <button
+                                                        onClick={() => openEditPopup(item?._id, 'TPH.one_rp_down', pendingInput.id, pendingInput.text)}
+                                                        className="p-0.5 hover:bg-blue-100 rounded-full transition-colors flex-shrink-0"
+                                                        title="Edit pending input"
+                                                      >
+                                                        <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                                      </button>
+                                                      <button
+                                                        onClick={() => openDeleteConfirmation(item?._id, 'TPH.one_rp_down', pendingInput.id, pendingInput.text)}
+                                                        className="p-0.5 hover:bg-red-100 rounded-full transition-colors flex-shrink-0"
+                                                        title="Delete pending input"
+                                                      >
+                                                        <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                                      </button>
+                                                    </div>
+                                                  ))}
                                                 </div>
                                               )
                                             }
@@ -2505,13 +3030,13 @@ const getHighPowerSubsections = (millType: string) => {
                                       )}
 
                                       {/* Both RP Down Section */}
-                                      {sortedData[index]?.backendData?.TPH?.both_rp_down && (
+                                      {item?.backendData?.TPH?.both_rp_down && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Both RP Down</h4>
                                             <button
                                               onClick={() => {
-                                                const tphData = sortedData[index]?.backendData?.TPH;
+                                                const tphData = item?.backendData?.TPH;
                                                 const bothRpDown = tphData?.both_rp_down;
                                                 const rampupData = bothRpDown?.rampup;
                                                 
@@ -2525,19 +3050,19 @@ const getHighPowerSubsections = (millType: string) => {
                                                 console.log('Both RP Down button clicked - data type:', typeof data);
                                                 console.log('Both RP Down button clicked - is array:', Array.isArray(data));
                                                 
-                                                openPopup(data, "Both RP Down", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName});
+                                                openPopup(data, "Both RP Down", {...item?.backendData, sectionName: item?.sectionName});
                                               }}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Both RP Down")
+                                                hasTrendData(item.backendData, "Both RP Down")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Both RP Down")}
+                                              title={hasTrendData(item.backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Both RP Down")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Both RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Both RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2550,14 +3075,14 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Both RP Down") && (
+                                              {hasTrendData(item.backendData, "Both RP Down") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index].backendData.TPH.both_rp_down) ? 
-                                              sortedData[index].backendData.TPH.both_rp_down.map((item: any, i: number) => (
+                                            {Array.isArray(item.backendData.TPH.both_rp_down) ? 
+                                              item.backendData.TPH.both_rp_down.map((item: any, i: number) => (
                                                 <div key={`both-rp-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2578,8 +3103,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index].backendData.TPH.both_rp_down === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH.both_rp_down)
+                                                  {typeof item.backendData.TPH.both_rp_down === 'object' ? 
+                                                    Object.entries(item.backendData.TPH.both_rp_down)
                                                       .filter(([key]) => key !== 'rampup') // Show all keys except rampup (which is handled separately)
                                                       .map(([key, value], j) => (
                                                       <div key={`both-rp-single-${index}-${j}`} className="flex items-start gap-2">
@@ -2593,7 +3118,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index].backendData.TPH.both_rp_down))}
+                                                          {highlightNumbers(String(item.backendData.TPH.both_rp_down))}
                                                         </span>
                                                       </div>
                                                     )
@@ -2607,23 +3132,23 @@ const getHighPowerSubsections = (millType: string) => {
                                       )}
 
                                       {/* Reduced Feed Operations Section */}
-                                      {sortedData[index]?.backendData?.TPH?.["Reduced Feed Operations"] && (
+                                      {item?.backendData?.TPH?.["Reduced Feed Operations"] && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Reduced Feed Operations</h4>
                                             <button
-                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.lowfeed, "Reduced Feed Operations", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName})}
+                                              onClick={() => openPopup(item?.backendData?.TPH?.lowfeed, "Reduced Feed Operations", {...item?.backendData, sectionName: item?.sectionName})}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Reduced Feed Operations")
+                                                hasTrendData(item.backendData, "Reduced Feed Operations")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Reduced Feed Operations") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Reduced Feed Operations")}
+                                              title={hasTrendData(item.backendData, "Reduced Feed Operations") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Reduced Feed Operations")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Reduced Feed Operations") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Reduced Feed Operations") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2636,14 +3161,14 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Reduced Feed Operations") && (
+                                              {hasTrendData(item.backendData, "Reduced Feed Operations") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index].backendData.TPH["Reduced Feed Operations"]) ? 
-                                              sortedData[index].backendData.TPH["Reduced Feed Operations"].map((item: any, i: number) => (
+                                            {Array.isArray(item.backendData.TPH["Reduced Feed Operations"]) ? 
+                                              item.backendData.TPH["Reduced Feed Operations"].map((item: any, i: number) => (
                                                 <div key={`reduced-feed-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2664,8 +3189,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index].backendData.TPH["Reduced Feed Operations"] === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH["Reduced Feed Operations"]).map(([key, value], j: number) => (
+                                                  {typeof item.backendData.TPH["Reduced Feed Operations"] === 'object' ? 
+                                                    Object.entries(item.backendData.TPH["Reduced Feed Operations"]).map(([key, value], j: number) => (
                                                       <div key={`reduced-feed-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-base text-gray-600">
@@ -2677,7 +3202,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index].backendData.TPH["Reduced Feed Operations"]))}
+                                                          {highlightNumbers(String(item.backendData.TPH["Reduced Feed Operations"]))}
                                                         </span>
                                                       </div>
                                                     )
@@ -2692,23 +3217,23 @@ const getHighPowerSubsections = (millType: string) => {
                                       )}
 
                                       {/* Ball Mill Section */}
-                                      {sortedData[index]?.backendData?.TPH?.ball_mill && (
+                                      {item?.backendData?.TPH?.ball_mill && (
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Ball Mill</h4>
                                             <button
-                                              onClick={() => openPopup(sortedData[index]?.backendData?.TPH?.ball_mill, "Ball Mill", {...sortedData[index]?.backendData, sectionName: sortedData[index]?.sectionName})}
+                                              onClick={() => openPopup(item?.backendData?.TPH?.ball_mill, "Ball Mill", {...item?.backendData, sectionName: item?.sectionName})}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(sortedData[index].backendData, "Ball Mill")
+                                                hasTrendData(item.backendData, "Ball Mill")
                                                   ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                   : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                               }`}
-                                              title={hasTrendData(sortedData[index].backendData, "Ball Mill") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(sortedData[index].backendData, "Ball Mill")}
+                                              title={hasTrendData(item.backendData, "Ball Mill") ? "View trend chart" : "No trend data available"}
+                                              disabled={!hasTrendData(item.backendData, "Ball Mill")}
                                             >
                                               <svg
                                                 className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(sortedData[index].backendData, "Ball Mill") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  hasTrendData(item.backendData, "Ball Mill") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                 }`}
                                                 fill="none"
                                                 stroke="currentColor"
@@ -2721,14 +3246,14 @@ const getHighPowerSubsections = (millType: string) => {
                                                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                 />
                                               </svg>
-                                              {hasTrendData(sortedData[index].backendData, "Ball Mill") && (
+                                              {hasTrendData(item.backendData, "Ball Mill") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
                                           </div>
                                           <div className="space-y-2">
-                                            {Array.isArray(sortedData[index].backendData.TPH.ball_mill) ? 
-                                              sortedData[index].backendData.TPH.ball_mill.map((item: any, i: number) => (
+                                            {Array.isArray(item.backendData.TPH.ball_mill) ? 
+                                              item.backendData.TPH.ball_mill.map((item: any, i: number) => (
                                                 <div key={`ball-mill-${index}-${i}`} className="space-y-1">
                                                   {typeof item === 'object' ? 
                                                     Object.entries(item).map(([key, value], j: number) => (
@@ -2749,8 +3274,8 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )) : (
                                                 <div className="space-y-1">
-                                                  {typeof sortedData[index].backendData.TPH.ball_mill === 'object' ? 
-                                                    Object.entries(sortedData[index].backendData.TPH.ball_mill).map(([key, value], j: number) => (
+                                                  {typeof item.backendData.TPH.ball_mill === 'object' ? 
+                                                    Object.entries(item.backendData.TPH.ball_mill).map(([key, value], j: number) => (
                                                       <div key={`ball-mill-single-${index}-${j}`} className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-base text-gray-600">
@@ -2762,7 +3287,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       <div className="flex items-start gap-2">
                                                         <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
                                                         <span className="text-sm text-gray-600">
-                                                          {highlightNumbers(String(sortedData[index].backendData.TPH.ball_mill))}
+                                                          {highlightNumbers(String(item.backendData.TPH.ball_mill))}
                                                         </span>
                                                       </div>
                                                     )
@@ -2786,9 +3311,9 @@ const getHighPowerSubsections = (millType: string) => {
                                     <span className="text-gray-900 font-bold text-base">Idle Running</span>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
-                                    {sortedData[index]?.backendData?.idle_running?.cause ? (
+                                    {item?.backendData?.idle_running?.cause ? (
                                       <p className="text-gray-700 text-base">
-                                        {highlightNumbers(sortedData[index].backendData.idle_running.cause)}
+                                        {highlightNumbers(item.backendData.idle_running.cause)}
                                       </p>
                                     ) : (
                                       <p className="text-gray-700 text-base">
@@ -2805,22 +3330,25 @@ const getHighPowerSubsections = (millType: string) => {
                                   <AccordionContent className="px-4 pb-4">
                                     {/* Dynamic component for all mill types */}
                                     <DynamicHighPowerSection
-                                      filteredData={finalFilteredData}
-                                      index={index}
+                                      item={item}
                                       selectedMillType={selectedSection}
                                       openPopup={openPopup}
+                                      openPlusPopup={openPlusPopup}
                                       shouldShowTrend={shouldShowTrend}
                                       highlightNumbers={highlightNumbers}
                                       extractDeviceId={extractDeviceId}
                                       extractSensorIds={extractSensorIds}
                                       extractSensorNames={extractSensorNames}
+                                      pendingUserInputs={pendingUserInputs}
+                                      onDeletePendingInput={openDeleteConfirmation}
+                                      onEditPendingInput={openEditPopup}
                                     />
                                   </AccordionContent>
                                 </AccordionItem>
 
                                 {/* Quality section - only show when Blaine_ or 45_ has data */}
                                 {(() => {
-                                  const qualityData = sortedData[index]?.backendData?.Qulity as any;
+                                  const qualityData = item?.backendData?.Qulity as any;
                                   console.log('Quality Debug - Index:', index, 'Quality Data:', qualityData);
                                   console.log('Quality Debug - 45_ data:', qualityData?.['45_']);
                                   console.log('Quality Debug - Blaine_ data:', qualityData?.['Blaine_']);
@@ -2834,7 +3362,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   // Additional check for specific date 26/06/25 - ensure we don't show empty Quality section
                                   const currentDate = new Date().toLocaleDateString('en-GB');
                                   const isTargetDate = currentDate === '26/06/2025' || 
-                                                      sortedData[index]?.backendData?.query_time?.includes('2025-06-26');
+                                                      item?.backendData?.query_time?.includes('2025-06-26');
                                   
                                   if (isTargetDate && !hasQualityData) {
                                     console.log('Quality Debug - Target date 26/06/25 detected with no quality data, hiding section');
@@ -2862,18 +3390,18 @@ const getHighPowerSubsections = (millType: string) => {
                                               <div className="flex items-center justify-between mb-3">
                                                 <h4 className="font-semibold text-gray-700 text-base">45 Micron</h4>
                                                 <button
-                                                  onClick={() => openPopup(qualityData?.table, "45 Micron", sortedData[index].backendData)}
+                                                  onClick={() => openPopup(qualityData?.table, "45 Micron", item.backendData)}
                                                   className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                    shouldShowTrend(sortedData[index].backendData, "45 Micron")
+                                                    shouldShowTrend(item.backendData, "45 Micron")
                                                       ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                       : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                                   }`}
-                                                  title={shouldShowTrend(sortedData[index].backendData, "45 Micron") ? "View trend chart" : "No trend data available"}
-                                                  disabled={!shouldShowTrend(sortedData[index].backendData, "45 Micron")}
+                                                  title={shouldShowTrend(item.backendData, "45 Micron") ? "View trend chart" : "No trend data available"}
+                                                  disabled={!shouldShowTrend(item.backendData, "45 Micron")}
                                                 >
                                                   <svg
                                                     className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                      shouldShowTrend(sortedData[index].backendData, "45 Micron") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                      shouldShowTrend(item.backendData, "45 Micron") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                     }`}
                                                     fill="none"
                                                     stroke="currentColor"
@@ -2886,7 +3414,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                     />
                                                   </svg>
-                                                  {shouldShowTrend(sortedData[index].backendData, "45 Micron") && (
+                                                  {shouldShowTrend(item.backendData, "45 Micron") && (
                                                     <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                                   )}
                                                 </button>
@@ -2914,18 +3442,18 @@ const getHighPowerSubsections = (millType: string) => {
                                                   {qualityData?.['90_'] ? '90 Micron' : 'Blaine'}
                                                 </h4>
                                                 <button
-                                                  onClick={() => openPopup(qualityData?.table, qualityData?.['90_'] ? "90 Micron" : "Blaine", sortedData[index].backendData)}
+                                                  onClick={() => openPopup(qualityData?.table, qualityData?.['90_'] ? "90 Micron" : "Blaine", item.backendData)}
                                                   className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                    shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")
+                                                    shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")
                                                       ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
                                                       : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
                                                   }`}
-                                                  title={shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? "View trend chart" : "No trend data available"}
-                                                  disabled={!shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")}
+                                                  title={shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? "View trend chart" : "No trend data available"}
+                                                  disabled={!shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine")}
                                                 >
                                                   <svg
                                                     className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                      shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                      shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
                                                     }`}
                                                     fill="none"
                                                     stroke="currentColor"
@@ -2938,7 +3466,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                                     />
                                                   </svg>
-                                                  {shouldShowTrend(sortedData[index].backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") && (
+                                                  {shouldShowTrend(item.backendData, qualityData?.['90_'] ? "90 Micron" : "Blaine") && (
                                                     <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                                   )}
                                                 </button>
@@ -4055,6 +4583,240 @@ const getHighPowerSubsections = (millType: string) => {
                   </>
                 )}
               </Tabs>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Parameters Popup Modal */}
+      {parametersPopup.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Process Parameters
+                </h3>
+                <Popover open={showParamsInfo} onOpenChange={setShowParamsInfo}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                      title="View inference logic explanation"
+                    >
+                      <Info className="w-5 h-5 text-blue-600" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-96 p-4" align="start">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm text-gray-900">
+                        Inference Logic (Common for All Parameters)
+                      </h4>
+                      <div className="space-y-2 text-xs text-gray-700">
+                        <div>
+                          <span className="font-semibold">Low (&lt; LSL):</span>
+                          <p className="mt-1">Percentage of data points falling below the Lower Set Limit (LSL), indicating under-range operation.</p>
+                        </div>
+                        <div>
+                          <span className="font-semibold">Target (LSL–USL):</span>
+                          <p className="mt-1">Percentage of data points between LSL and USL, representing stable and acceptable operating conditions.</p>
+                        </div>
+                        <div>
+                          <span className="font-semibold">High (&gt; USL):</span>
+                          <p className="mt-1">Percentage of data points above the Upper Set Limit (USL), indicating over-range operation.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <button onClick={() => setParametersPopup({ isOpen: false, dataIndex: undefined })} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="overflow-x-auto">
+                <Table className="min-w-full border rounded-lg">
+                  <TableHeader className="bg-gray-100">
+                    <TableRow>
+                      <TableHead className="px-4 py-2 text-left border-b font-semibold">Parameter</TableHead>
+                      <TableHead className="px-4 py-2 text-center border-b font-semibold">{'< Low %'}</TableHead>
+                      <TableHead
+                        className="px-4 py-2 text-center border-b font-semibold cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                        onClick={() => setParamsSortOrder(paramsSortOrder === 'asc' ? 'desc' : 'asc')}
+                        title={`Click to sort ${paramsSortOrder === 'asc' ? 'descending' : 'ascending'}`}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          Target %
+                          <span className="text-xs">
+                            {paramsSortOrder === 'asc' ? '↑' : '↓'}
+                          </span>
+                        </div>
+                      </TableHead>
+                      <TableHead className="px-4 py-2 text-center border-b font-semibold">{"> High %"}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(() => {
+                      // Get process params from the selected data
+                      const selectedData = parametersPopup.dataIndex !== undefined ? finalFilteredData[parametersPopup.dataIndex] : null;
+                      let processParams = selectedData?.processParams;
+
+                      if (!processParams || processParams.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                              No process parameters data available
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
+                      // Sort by Target% based on sort order
+                      const sortedParams = [...processParams].sort((a, b) => {
+                        if (paramsSortOrder === 'asc') {
+                          return a['Target%'] - b['Target%'];
+                        } else {
+                          return b['Target%'] - a['Target%'];
+                        }
+                      });
+
+                      return sortedParams.map((param, index) => (
+                        <TableRow key={index} className={index % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
+                          <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter}</TableCell>
+                          <TableCell className="px-4 py-2 border-b text-center">{param['<Low%'].toFixed(2)}</TableCell>
+                          <TableCell className={`px-4 py-2 border-b text-center ${getTargetBgColor(param['Target%'])}`}>
+                            {param['Target%'].toFixed(2)}
+                          </TableCell>
+                          <TableCell className="px-4 py-2 border-b text-center">{param['>High%'].toFixed(2)}</TableCell>
+                        </TableRow>
+                      ));
+                    })()}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Plus Icon Popup Modal */}
+      {plusPopupData.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white w-[70%] rounded-lg shadow-lg">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {plusPopupData.section}
+              </h3>
+              <button onClick={closePlusPopup} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="plusInput" className="block text-sm font-medium text-gray-700 mb-2">
+                    Add Note
+                  </label>
+                  <Input
+                    id="plusInput"
+                    type="text"
+                    placeholder="Type here..."
+                    value={plusInputValue}
+                    onChange={(e) => setPlusInputValue(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={closePlusPopup}
+                    disabled={plusPopupData.saving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSavePlusInput}
+                    disabled={plusPopupData.saving || !plusInputValue.trim()}
+                  >
+                    {plusPopupData.saving ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Popup */}
+      {deleteConfirmation.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <X className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Delete Pending Input</h3>
+            </div>
+            <p className="text-gray-600 mb-2">Are you sure you want to delete this pending input?</p>
+            <p className="text-sm text-gray-500 bg-gray-50 p-2 rounded mb-4 italic truncate">
+              "{deleteConfirmation.inputText}"
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={closeDeleteConfirmation}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmDeletePendingInput}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Pending Input Popup */}
+      {editPopup.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-blue-100 rounded-full">
+                <Pencil className="w-5 h-5 text-blue-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Edit Pending Input</h3>
+            </div>
+            <div className="mb-4">
+              <label htmlFor="editInput" className="block text-sm font-medium text-gray-700 mb-2">
+                Edit your note
+              </label>
+              <Input
+                id="editInput"
+                type="text"
+                placeholder="Type here..."
+                value={editInputValue}
+                onChange={(e) => setEditInputValue(e.target.value)}
+                className="w-full"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={closeEditPopup}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmEditPendingInput}
+                disabled={!editInputValue.trim()}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Save
+              </Button>
             </div>
           </div>
         </div>

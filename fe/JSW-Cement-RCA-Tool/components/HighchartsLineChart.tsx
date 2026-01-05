@@ -785,7 +785,11 @@ export default function HighchartsLineChart({
           }
         },
         gridLineColor: '#e5e7eb',
-        gridLineDashStyle: 'Dash'
+        gridLineDashStyle: 'Dash',
+        startOnTick: false,
+        endOnTick: false,
+        softMin: undefined,
+        softMax: undefined
       },
       {
         // Right axis for PH Fan Power or Kiln RPM
@@ -803,7 +807,9 @@ export default function HighchartsLineChart({
         },
         opposite: true,
         gridLineColor: '#e5e7eb',
-        gridLineDashStyle: 'Dash'
+        gridLineDashStyle: 'Dash',
+        startOnTick: false,
+        endOnTick: false
       }
     ] : {
       title: {
@@ -815,7 +821,14 @@ export default function HighchartsLineChart({
         }
       },
       gridLineColor: '#e5e7eb',
-      gridLineDashStyle: 'Dash'
+      gridLineDashStyle: 'Dash',
+      // Auto-scale Y-axis to fit data (not starting from 0)
+      startOnTick: false,
+      endOnTick: false,
+      softMin: undefined,
+      softMax: undefined,
+      min: null,
+      max: null
     },
     tooltip: {
       shared: true,
@@ -871,14 +884,27 @@ export default function HighchartsLineChart({
     },
     plotOptions: {
       line: {
-        animation: false,
+        animation: true,
         enableMouseTracking: true,
-        connectNulls: false
+        connectNulls: false,
+        lineWidth: 2,
+        marker: {
+          enabled: false,
+          states: {
+            hover: {
+              enabled: true,
+              radius: 4
+            }
+          }
+        }
       },
       series: {
         states: {
           inactive: {
             opacity: 1 // Prevent dimming of non-active series
+          },
+          hover: {
+            lineWidth: 3
           }
         },
         events: {

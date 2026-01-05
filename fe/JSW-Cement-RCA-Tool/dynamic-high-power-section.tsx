@@ -1,38 +1,74 @@
 import React from 'react';
+import { Plus, X, Pencil } from 'lucide-react';
 
 interface DynamicHighPowerSectionProps {
-  filteredData: any[];
-  index: number;
+  item: any; // The actual data item (instead of filteredData + index)
   selectedMillType: string;
   openPopup: (data: any, section: string, backendData: any) => void;
+  openPlusPopup: (section: string, sectionName?: string, targetPath?: string, _id?: string, insightID?: string, applicationType?: string, existingBackendData?: any) => void;
   shouldShowTrend: (data: any, section: string) => boolean;
   highlightNumbers: (text: any) => React.ReactNode;
   extractDeviceId: (data: any) => string | null;
   extractSensorIds: (data: any, section: string) => string[] | null;
   extractSensorNames: (data: any, section: string) => Record<string, string> | undefined;
+  pendingUserInputs?: Record<string, Record<string, Array<{ text: string; id: string }>>>;
+  onDeletePendingInput?: (itemId: string, targetPath: string, inputId: string, inputText: string) => void;
+  onEditPendingInput?: (itemId: string, targetPath: string, inputId: string, inputText: string) => void;
 }
 
 export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = ({
-  filteredData,
-  index,
+  item,
   selectedMillType,
   openPopup,
+  openPlusPopup,
   shouldShowTrend,
   highlightNumbers,
   extractDeviceId,
   extractSensorIds,
-  extractSensorNames
+  extractSensorNames,
+  pendingUserInputs = {},
+  onDeletePendingInput,
+  onEditPendingInput
 }) => {
+  // Debug logging to verify correct data is being passed
+  console.log('=== DynamicHighPowerSection Debug ===');
+  console.log('Timestamp:', item?.timestamp);
+  console.log('SectionName:', item?.sectionName);
+  console.log('Impact:', item?.details?.impact);
+  console.log('Date:', item?.lastUpdated);
+  console.log('High_Power (direct):', JSON.stringify(item?.backendData?.High_Power, null, 2));
+  console.log('klin.High_Power:', JSON.stringify(item?.backendData?.klin?.High_Power, null, 2));
+  console.log('Kiln.High_Power:', JSON.stringify(item?.backendData?.Kiln?.High_Power, null, 2));
+  console.log('=== End Debug ===');
+
+  // Get High_Power data - check multiple locations for Kiln section
+  // Priority: direct High_Power, then klin.High_Power, then Kiln.High_Power
+  const getHighPowerData = () => {
+    if (item?.backendData?.High_Power) {
+      return item.backendData.High_Power;
+    }
+    // For Kiln section, check nested structures
+    if (item?.sectionName === "Kiln") {
+      if (item?.backendData?.klin?.High_Power) {
+        return item.backendData.klin.High_Power;
+      }
+      if (item?.backendData?.Kiln?.High_Power) {
+        return item.backendData.Kiln.High_Power;
+      }
+    }
+    return null;
+  };
+
+  const highPowerData = getHighPowerData();
+
   // Check if data exists
-  if (!filteredData[index]?.backendData?.High_Power) {
+  if (!highPowerData) {
     return (
       <div className="space-y-4">
         <p className="text-gray-700">No high power data available.</p>
       </div>
     );
   }
-
-  const highPowerData = filteredData[index].backendData.High_Power;
   
 
   // Helper function to check if data is valid
@@ -95,35 +131,58 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
           <h4 className={`font-semibold ${theme.text} text-base`}>
             {getDisplayName(key)}
           </h4>
-          <button
-            onClick={() => openPopup(data, getDisplayName(key), filteredData[index]?.backendData)}
-            className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-              shouldShowTrend(filteredData[index].backendData, getDisplayName(key))
-                ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
-                : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
-            }`}
-            title={shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) ? "View trend chart" : "No trend data available"}
-            disabled={!shouldShowTrend(filteredData[index].backendData, getDisplayName(key))}
-          >
-            <svg
-              className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
-              }`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="flex items-center gap-2">
+            {/* Plus Icon Button */}
+            <button
+              onClick={() => openPlusPopup(
+                getDisplayName(key),
+                item?.sectionName || "Kiln",
+                `High_Power.${key}`,
+                item?._id || "",
+                item?.insightID || "",
+                item?.applicationType || "Workbench",
+                item?.backendData || {}
+              )}
+              className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+              title="Add user note"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              <Plus
+                className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
               />
-            </svg>
-            {shouldShowTrend(filteredData[index].backendData, getDisplayName(key)) && (
               <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-            )}
-          </button>
+            </button>
+
+            {/* Chart Icon Button */}
+            <button
+              onClick={() => openPopup(data, getDisplayName(key), item?.backendData)}
+              className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                shouldShowTrend(item.backendData, getDisplayName(key))
+                  ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                  : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+              }`}
+              title={shouldShowTrend(item.backendData, getDisplayName(key)) ? "View trend chart" : "No trend data available"}
+              disabled={!shouldShowTrend(item.backendData, getDisplayName(key))}
+            >
+              <svg
+                className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                  shouldShowTrend(item.backendData, getDisplayName(key)) ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                }`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+              {shouldShowTrend(item.backendData, getDisplayName(key)) && (
+                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              )}
+            </button>
+          </div>
         </div>
         
         {cause && (
@@ -136,7 +195,7 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
         {!isRP1OrRP2 && numberedPoints.length > 0 && (
           <div className="space-y-2">
             {numberedPoints.map((point, i) => (
-              <div key={`${key}-${index}-${i}`} className="flex items-start gap-2">
+              <div key={`${key}-${item.timestamp}-${i}`} className="flex items-start gap-2">
                 <div className={`w-1.5 h-1.5 ${theme.dot} rounded-full mt-2 flex-shrink-0`}></div>
                 <span className={`text-base ${theme.text} opacity-80`}>
                   {highlightNumbers(point.value)}
@@ -145,6 +204,35 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
             ))}
           </div>
         )}
+
+        {/* Show pending user inputs with sky blue highlight */}
+        {pendingUserInputs[item?._id]?.[`High_Power.${key}`]?.map((pendingInput) => (
+          <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 mt-2 animate-pulse">
+            <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+            <span className="text-base text-sky-700 font-medium flex-1">
+              {pendingInput.text}
+            </span>
+            <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+            {onEditPendingInput && (
+              <button
+                onClick={() => onEditPendingInput(item?._id, `High_Power.${key}`, pendingInput.id, pendingInput.text)}
+                className="p-0.5 hover:bg-blue-100 rounded-full transition-colors flex-shrink-0"
+                title="Edit pending input"
+              >
+                <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+              </button>
+            )}
+            {onDeletePendingInput && (
+              <button
+                onClick={() => onDeletePendingInput(item?._id, `High_Power.${key}`, pendingInput.id, pendingInput.text)}
+                className="p-0.5 hover:bg-red-100 rounded-full transition-colors flex-shrink-0"
+                title="Delete pending input"
+              >
+                <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+              </button>
+            )}
+          </div>
+        ))}
       </div>
     );
   };
@@ -223,7 +311,9 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
   });
 
   // Render all available sections with consistent UI
-  const sections = Object.entries(highPowerData)
+  const entries = Object.entries(highPowerData);
+
+  const sections = entries
     .map(([key, data]) => {
       const theme = themes[key as keyof typeof themes] || getDefaultTheme();
       return renderSection(key, data, theme);

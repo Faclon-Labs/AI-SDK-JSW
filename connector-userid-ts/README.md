@@ -48,7 +48,7 @@ This package is published on npm registry as `connector-userid-ts`. It includes:
 
 ## 🔧 Usage
 
-### Basic Setup
+### Basic setup
 
 ```typescript
 import DataAccess from 'connector-userid-ts';
@@ -346,7 +346,7 @@ npm install
 
 ## Usage
 
-### Basic Setup
+### Basic setup
 
 ```typescript
 import { EventsHandler } from 'connector-userid-ts';

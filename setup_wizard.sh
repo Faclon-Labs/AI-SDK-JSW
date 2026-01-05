@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AI SDK Setup Wizard
+# AI SDK setup Wizard
 # This script helps users set up a development environment for creating apps with the AI SDK
 # Powered by IOSENSE, part of Faclon Labs
 
@@ -54,7 +54,7 @@ display_welcome() {
   echo -e "\n${BLUE}$(printf '%.0s━' $(seq 1 70))${NC}\n"
   
   # Simple typing effect - ensure we use echo -e for the final output
-  type_text "Welcome to the AI SDK Setup Wizard" 0.01
+  type_text "Welcome to the AI SDK setup Wizard" 0.01
   type_text "This wizard will help you set up a development environment for creating"
   type_text "applications powered by IO-Sense data."
   
@@ -183,7 +183,7 @@ check_requirements() {
   else
     echo -e "${YELLOW}Not found${NC}"
     echo -e "The bc command is recommended for best animation effects."
-    echo -e "Setup will continue, but some animations may not display correctly."
+    echo -e "setup will continue, but some animations may not display correctly."
     # Define a simpler fallback for the type_text function
     type_text() {
       local text="$1"
@@ -204,7 +204,7 @@ check_requirements() {
 # Function to clone repositories
 clone_repositories() {
   # Directly show header without transition
-  show_header "Setting Up Repositories"
+  show_header "setting Up Repositories"
   
   # Select the appropriate repository URLs based on framework and connector type
   if [[ "$FRAMEWORK" == "angular" ]]; then
@@ -274,7 +274,7 @@ EOF
 # Function to display next steps with an enhanced completion animation
 display_next_steps() {
   # Simple header
-  show_header "Setup Complete! 🎉"
+  show_header "setup Complete! 🎉"
   
   type_text "Your AI SDK development environment has been set up successfully." 0.01
   echo -e "\n${BOLD}${CYAN}What's Next?${NC}"
@@ -436,7 +436,7 @@ handle_rerun() {
           exit 0
           ;;
         2) 
-          show_header "Removing Existing Setup"
+          show_header "Removing Existing setup"
           
           show_loading "Preparing cleanup" 1
           
@@ -487,7 +487,7 @@ show_spinner() {
 
 # Function to display help information
 show_help() {
-  echo -e "${BOLD}${CYAN}AI SDK Setup Wizard - Help${NC}\n"
+  echo -e "${BOLD}${CYAN}AI SDK setup Wizard - Help${NC}\n"
   echo -e "This script helps you set up a development environment for creating"
   echo -e "applications powered by AI SDK data."
   
@@ -501,10 +501,10 @@ show_help() {
   echo -e "  ${CYAN}--help${NC}      Show this help message and exit"
   
   echo -e "\n${BOLD}Description:${NC}"
-  echo -e "  The AI SDK Setup Wizard guides you through setting up a development"
+  echo -e "  The AI SDK setup Wizard guides you through setting up a development"
   echo -e "  environment for creating applications with AI SDK. It helps you:"
   echo -e "    • Choose from Angular, React, or Python frameworks"
-  echo -e "    • Set up connector libraries for AI data integration"
+  echo -e "    • set up connector libraries for AI data integration"
   echo -e "    • Install optional demo applications"
   echo -e "    • Create a project structure ready for development"
   
@@ -564,7 +564,7 @@ else
     esac
   done
   
-  # Set connector type (UserID for now, disable prompt)
+  # set connector type (UserID for now, disable prompt)
   CONNECTOR_TYPE="userid"
   echo -e "\n${BOLD}Connector Type:${NC} ${GREEN}UserID-based${NC} (default)"
   

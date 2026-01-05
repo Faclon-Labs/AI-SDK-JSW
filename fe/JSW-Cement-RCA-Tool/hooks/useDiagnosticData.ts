@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import { fetchAllInsightResults, fetchInsightResultsByTimeRange, TimeRange } from '../lib/api';
 
+// Process parameter interface
+export interface ProcessParam {
+  Parameter: string;
+  '<Low%': number;
+  'Target%': number;
+  '>High%': number;
+}
+
 // Custom interface to match the actual payload structure
 interface CustomInsightResult {
   _id: string;
@@ -8,8 +16,10 @@ interface CustomInsightResult {
   insightID: string;
   applicationID: any;
   applicationType: string;
+  process_params?: ProcessParam[];
   result: {
     [section: string]: {
+      process_params?: ProcessParam[];
       TPH?: {
         RP1_maintance?: any[];
         RP2_maintance?: any[];
@@ -147,6 +157,9 @@ interface CustomInsightResult {
 }
 
 interface DiagnosticData {
+  _id: string; // Document ID for API updates
+  insightID: string; // Insight ID for API updates
+  applicationType: string; // Application type for API updates
   millName: string;
   sectionName: string; // Add section name (e.g., "Cement Mill 1")
   issue: string;
@@ -154,6 +167,7 @@ interface DiagnosticData {
   lastUpdated: string;
   timestamp: string; // Raw timestamp
   resultName: string; // Result name from backend
+  processParams?: ProcessParam[]; // Process parameters data
   details?: {
     targetSPC?: string;
     daySPC?: string;
@@ -356,6 +370,9 @@ function processSectionDataDirectly(sectionData: any, originalResult: any, trans
     const impactValue = resultData.SPC?.Impact || 'N/A';
     
     const transformedItem = {
+      _id: originalResult._id || '',
+      insightID: originalResult.insightID || '',
+      applicationType: originalResult.applicationType || 'Workbench',
       millName: originalResult.resultName || "Raw Mill",
       sectionName: sectionName,
       issue: detectedIssue,
@@ -363,13 +380,14 @@ function processSectionDataDirectly(sectionData: any, originalResult: any, trans
       lastUpdated: formattedDate,
       timestamp: originalResult.invocationTime,
       resultName: originalResult.resultName || "Raw Mill",
+      processParams: resultData.process_params || (originalResult as CustomInsightResult).process_params,
       details: {
         ...details,
         impact: impactValue
       },
       backendData: resultData
     };
-    
+
     console.log('Adding transformed item from direct processing:', transformedItem);
     transformedData.push(transformedItem);
   });
@@ -379,6 +397,12 @@ export function useDiagnosticData(timeRange?: TimeRange) {
   const [diagnosticData, setDiagnosticData] = useState<DiagnosticData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Function to trigger a refetch of data
+  const refetch = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   useEffect(() => {
     async function fetchAndTransformData() {
@@ -411,13 +435,7 @@ export function useDiagnosticData(timeRange?: TimeRange) {
         results.forEach((result: any, index: number) => {
           // Cast to custom interface to access the result property
           const customResult = result as CustomInsightResult;
-          
-          console.log(`Processing result ${index}:`, customResult);
-          console.log('Result structure:', customResult.result);
-          console.log('Result keys:', Object.keys(customResult));
-          console.log('Has result property:', 'result' in customResult);
-          console.log('Result type:', typeof customResult.result);
-          
+
           // Check if result has the expected structure
           if (!customResult.result) {
             console.warn(`Result ${index} has no result property:`, customResult);
@@ -502,6 +520,9 @@ export function useDiagnosticData(timeRange?: TimeRange) {
               const impactValue = resultData.SPC?.Impact || 'N/A';
               
               const transformedItem = {
+                _id: customResult._id || '',
+                insightID: customResult.insightID || '',
+                applicationType: customResult.applicationType || 'Workbench',
                 millName: result.resultName || "Raw Mill",
                 sectionName: sectionName, // Include the actual section name
                 issue: detectedIssue,
@@ -509,13 +530,14 @@ export function useDiagnosticData(timeRange?: TimeRange) {
                 lastUpdated: formattedDate,
                 timestamp: result.invocationTime, // Raw timestamp
                 resultName: result.resultName || "Raw Mill", // Result name
+                processParams: resultData.process_params || customResult.process_params, // Include process parameters from section or top level
                 details: {
                   ...details,
                   impact: impactValue
                 },
                 backendData: resultData // Include all the detailed backend data
               };
-              
+
               console.log('Adding transformed item:', transformedItem);
               transformedData.push(transformedItem);
             });
@@ -559,6 +581,9 @@ export function useDiagnosticData(timeRange?: TimeRange) {
             const impactValue = resultData?.SPC?.Impact || 'N/A';
             
             transformedData.push({
+              _id: customResult._id || '',
+              insightID: customResult.insightID || '',
+              applicationType: customResult.applicationType || 'Workbench',
               millName: result.resultName || "Raw Mill",
               sectionName: "Default", // Default section name for old structure
               issue: detectedIssue,
@@ -582,6 +607,9 @@ export function useDiagnosticData(timeRange?: TimeRange) {
           console.warn('No data was transformed. This might indicate a data structure issue.');
           // Create a fallback entry to show something in the UI
           const fallbackData: DiagnosticData[] = [{
+            _id: '',
+            insightID: '',
+            applicationType: 'Workbench',
             millName: "No Data",
             sectionName: "No Data",
             issue: "No data available for the selected insight",
@@ -609,7 +637,7 @@ export function useDiagnosticData(timeRange?: TimeRange) {
     }
     
     fetchAndTransformData();
-  }, [timeRange]); // Add timeRange as dependency
+  }, [timeRange, refreshTrigger]); // Add timeRange and refreshTrigger as dependencies
 
-  return { diagnosticData, loading, error };
+  return { diagnosticData, loading, error, refetch };
 } 

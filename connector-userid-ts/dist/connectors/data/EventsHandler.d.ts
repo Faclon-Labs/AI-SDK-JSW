@@ -199,7 +199,7 @@ export default class EventsHandler {
      * //       D0: "2025-05-08 12:49:53",
      * //       D1: "2025-05-08 12:59:39",
      * //       D2: "Downtime",
-     * //       D3: "MC Setting Time",
+     * //       D3: "MC setting Time",
      * //       D4: "220044",
      * //       D5: "800033.0",
      * //       D6: "0.00",
