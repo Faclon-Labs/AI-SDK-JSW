@@ -157,6 +157,9 @@ interface CustomInsightResult {
 }
 
 interface DiagnosticData {
+  _id: string; // Document ID for API updates
+  insightID: string; // Insight ID for API updates
+  applicationType: string; // Application type for API updates
   millName: string;
   sectionName: string; // Add section name (e.g., "Cement Mill 1")
   issue: string;
@@ -367,6 +370,9 @@ function processSectionDataDirectly(sectionData: any, originalResult: any, trans
     const impactValue = resultData.SPC?.Impact || 'N/A';
     
     const transformedItem = {
+      _id: originalResult._id || '',
+      insightID: originalResult.insightID || '',
+      applicationType: originalResult.applicationType || 'Workbench',
       millName: originalResult.resultName || "Raw Mill",
       sectionName: sectionName,
       issue: detectedIssue,
@@ -391,6 +397,12 @@ export function useDiagnosticData(timeRange?: TimeRange) {
   const [diagnosticData, setDiagnosticData] = useState<DiagnosticData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Function to trigger a refetch of data
+  const refetch = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   useEffect(() => {
     async function fetchAndTransformData() {
@@ -508,6 +520,9 @@ export function useDiagnosticData(timeRange?: TimeRange) {
               const impactValue = resultData.SPC?.Impact || 'N/A';
               
               const transformedItem = {
+                _id: customResult._id || '',
+                insightID: customResult.insightID || '',
+                applicationType: customResult.applicationType || 'Workbench',
                 millName: result.resultName || "Raw Mill",
                 sectionName: sectionName, // Include the actual section name
                 issue: detectedIssue,
@@ -566,6 +581,9 @@ export function useDiagnosticData(timeRange?: TimeRange) {
             const impactValue = resultData?.SPC?.Impact || 'N/A';
             
             transformedData.push({
+              _id: customResult._id || '',
+              insightID: customResult.insightID || '',
+              applicationType: customResult.applicationType || 'Workbench',
               millName: result.resultName || "Raw Mill",
               sectionName: "Default", // Default section name for old structure
               issue: detectedIssue,
@@ -589,6 +607,9 @@ export function useDiagnosticData(timeRange?: TimeRange) {
           console.warn('No data was transformed. This might indicate a data structure issue.');
           // Create a fallback entry to show something in the UI
           const fallbackData: DiagnosticData[] = [{
+            _id: '',
+            insightID: '',
+            applicationType: 'Workbench',
             millName: "No Data",
             sectionName: "No Data",
             issue: "No data available for the selected insight",
@@ -616,7 +637,7 @@ export function useDiagnosticData(timeRange?: TimeRange) {
     }
     
     fetchAndTransformData();
-  }, [timeRange]); // Add timeRange as dependency
+  }, [timeRange, refreshTrigger]); // Add timeRange and refreshTrigger as dependencies
 
-  return { diagnosticData, loading, error };
+  return { diagnosticData, loading, error, refetch };
 } 

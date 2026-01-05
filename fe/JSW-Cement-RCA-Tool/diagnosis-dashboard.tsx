@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench, Info, Plus } from "lucide-react"
+import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench, Info, Plus, Pencil } from "lucide-react"
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useDiagnosticData, ProcessParam } from "./hooks/useDiagnosticData"
@@ -270,17 +270,25 @@ const highlightNumbers = (text: any) => {
 
 // Note: UTC to IST conversion removed since backend now handles IST timezone directly
 
+// Helper function to format date to YYYY-MM-DD (local time, not UTC)
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function Component() {
-  
+
   // Add state for time picker modal and range
   const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1); // January 1st of current year
-  const endOfYear = new Date(now.getFullYear(), 11, 31); // December 31st of current year
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1); // 1st of current month
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0); // Last day of current month
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [selectedRange, setSelectedRange] = useState<TimeRange>({
-    startDate: startOfYear.toISOString().slice(0, 10),
+    startDate: formatLocalDate(startOfMonth),
     startTime: "00:00",
-    endDate: endOfYear.toISOString().slice(0, 10),
+    endDate: formatLocalDate(endOfMonth),
     endTime: "23:59",
   });
 
@@ -321,6 +329,23 @@ export default function Component() {
 
   // Add state for info popover
   const [showParamsInfo, setShowParamsInfo] = useState(false);
+
+  // Add state for user input modal
+  const [userInputModal, setUserInputModal] = useState<{
+    isOpen: boolean;
+    inputValue: string;
+    sectionName: string;
+    dataIndex: number;
+    targetPath: string; // e.g., "TPH.one_rp_down"
+    saving: boolean;
+  }>({
+    isOpen: false,
+    inputValue: '',
+    sectionName: '',
+    dataIndex: -1,
+    targetPath: '',
+    saving: false
+  });
 
   const fetchStoppagesForTab = async ({
     moduleId,
@@ -478,7 +503,7 @@ const hasMaintenanceDataInPayload = (backendData: any) => {
 };
 
   // Pass the selected time range to the hook
-  const { diagnosticData, loading, error } = useDiagnosticData(selectedRange);
+  const { diagnosticData, loading, error, refetch } = useDiagnosticData(selectedRange);
   
   
   const [selectedFilter, setSelectedFilter] = useState<"high" | "medium" | "low" | "normal" | "all">("all")
@@ -498,12 +523,64 @@ const hasMaintenanceDataInPayload = (backendData: any) => {
     backendData: null
   })
 
-  const [plusPopupData, setPlusPopupData] = useState<{isOpen: boolean, section: string}>({
+  const [plusPopupData, setPlusPopupData] = useState<{
+    isOpen: boolean;
+    section: string;
+    sectionName: string;
+    targetPath: string;
+    _id: string;
+    insightID: string;
+    applicationType: string;
+    saving: boolean;
+    existingBackendData: any; // Store existing data to merge with
+  }>({
     isOpen: false,
-    section: ""
+    section: "",
+    sectionName: "",
+    targetPath: "",
+    _id: "",
+    insightID: "",
+    applicationType: "Workbench",
+    saving: false,
+    existingBackendData: null
   })
 
   const [plusInputValue, setPlusInputValue] = useState("")
+
+  // State to store pending user inputs (shown in UI with highlight, not yet saved to DB)
+  // Structure: { [itemId]: { [targetPath]: [{ text: string, id: string }] } }
+  const [pendingUserInputs, setPendingUserInputs] = useState<Record<string, Record<string, Array<{ text: string; id: string }>>>>({});
+
+  // State for delete confirmation popup
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    itemId: string;
+    targetPath: string;
+    inputId: string;
+    inputText: string;
+  }>({
+    isOpen: false,
+    itemId: '',
+    targetPath: '',
+    inputId: '',
+    inputText: ''
+  });
+
+  // State for edit popup
+  const [editPopup, setEditPopup] = useState<{
+    isOpen: boolean;
+    itemId: string;
+    targetPath: string;
+    inputId: string;
+    inputText: string;
+  }>({
+    isOpen: false,
+    itemId: '',
+    targetPath: '',
+    inputId: '',
+    inputText: ''
+  });
+  const [editInputValue, setEditInputValue] = useState('');
 
   const statusRangeDescriptions = {
     high: 'SPC deviation between 10% and 100%',
@@ -558,84 +635,112 @@ const getHighPowerSubsections = (millType: string) => {
   }
   };
 
+  // Helper function to format date to YYYY-MM-DD
+  const formatDateYMD = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Function to get preset name based on current selection
   const getPresetName = (range: TimeRange): string => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    
-    const startDate = new Date(range.startDate);
-    const endDate = new Date(range.endDate);
-    
+
     // Check if it's today
-    if (range.startDate === range.endDate && 
-        range.startDate === today.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+    if (range.startDate === range.endDate &&
+        range.startDate === formatDateYMD(today)) {
       return 'Today';
     }
-    
+
     // Check if it's yesterday
-    if (range.startDate === range.endDate && 
-        range.startDate === yesterday.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+    if (range.startDate === range.endDate &&
+        range.startDate === formatDateYMD(yesterday)) {
       return 'Yesterday';
     }
-    
+
     // Check if it's current week
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - today.getDay());
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
-    
-    if (range.startDate === startOfWeek.toISOString().slice(0, 10) &&
-        range.endDate === endOfWeek.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfWeek) &&
+        range.endDate === formatDateYMD(endOfWeek)) {
       return 'Current Week';
     }
-    
+
     // Check if it's previous week
     const startOfLastWeek = new Date(today);
     startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
     const endOfLastWeek = new Date(startOfLastWeek);
     endOfLastWeek.setDate(startOfLastWeek.getDate() + 6);
-    
-    if (range.startDate === startOfLastWeek.toISOString().slice(0, 10) &&
-        range.endDate === endOfLastWeek.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfLastWeek) &&
+        range.endDate === formatDateYMD(endOfLastWeek)) {
       return 'Previous Week';
     }
-    
+
     // Check if it's previous 7 days
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 7);
-    
-    if (range.startDate === sevenDaysAgo.toISOString().slice(0, 10) &&
-        range.endDate === today.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(sevenDaysAgo) &&
+        range.endDate === formatDateYMD(today)) {
       return 'Previous 7 Days';
     }
-    
+
     // Check if it's current month
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
-    if (range.startDate === startOfMonth.toISOString().slice(0, 10) &&
-        range.endDate === endOfMonth.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfMonth) &&
+        range.endDate === formatDateYMD(endOfMonth)) {
       return 'Current Month';
     }
-    
+
     // Check if it's previous month
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-    
-    if (range.startDate === startOfLastMonth.toISOString().slice(0, 10) &&
-        range.endDate === endOfLastMonth.toISOString().slice(0, 10) &&
-        range.startTime === '00:00' && range.endTime === '23:59') {
+
+    if (range.startDate === formatDateYMD(startOfLastMonth) &&
+        range.endDate === formatDateYMD(endOfLastMonth)) {
       return 'Previous Month';
     }
-    
+
+    // Check if it's previous 3 months
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    if (range.startDate === formatDateYMD(threeMonthsAgo) &&
+        range.endDate === formatDateYMD(today)) {
+      return 'Previous 3 Months';
+    }
+
+    // Check if it's previous 12 months
+    const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+    if (range.startDate === formatDateYMD(twelveMonthsAgo) &&
+        range.endDate === formatDateYMD(today)) {
+      return 'Previous 12 Months';
+    }
+
+    // Check if it's current year
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const endOfYear = new Date(now.getFullYear(), 11, 31);
+    if (range.startDate === formatDateYMD(startOfYear) &&
+        range.endDate === formatDateYMD(endOfYear)) {
+      return 'Current Year';
+    }
+
+    // Check if it's previous year
+    const startOfLastYear = new Date(now.getFullYear() - 1, 0, 1);
+    const endOfLastYear = new Date(now.getFullYear() - 1, 11, 31);
+    if (range.startDate === formatDateYMD(startOfLastYear) &&
+        range.endDate === formatDateYMD(endOfLastYear)) {
+      return 'Previous Year';
+    }
+
     return 'Custom';
   };
 
@@ -1005,10 +1110,11 @@ const getHighPowerSubsections = (millType: string) => {
   // Update available sections when diagnosticData changes
   useEffect(() => {
     if (diagnosticData && diagnosticData.length > 0) {
-      const sections = Array.from(new Set(diagnosticData.map(item => item.sectionName)));
+      const sections = Array.from(new Set(diagnosticData.map(item => item.sectionName)))
+        .filter(section => section && section !== "No Data" && section.trim() !== ""); // Filter out "No Data" and empty sections
       // Merge with existing sections to preserve all seen sections
       setAllAvailableSections(prev => {
-        const merged = new Set([...prev, ...sections]);
+        const merged = new Set([...prev.filter(s => s !== "No Data" && s.trim() !== ""), ...sections]);
         return Array.from(merged);
       });
     }
@@ -1042,19 +1148,282 @@ const getHighPowerSubsections = (millType: string) => {
     })
   }
 
-  const openPlusPopup = (section: string) => {
+  const openPlusPopup = (section: string, sectionName: string = "", targetPath: string = "", _id: string = "", insightID: string = "", applicationType: string = "Workbench", existingBackendData: any = null) => {
     setPlusPopupData({
       isOpen: true,
-      section
+      section,
+      sectionName,
+      targetPath,
+      _id,
+      insightID,
+      applicationType,
+      saving: false,
+      existingBackendData
     })
   }
 
   const closePlusPopup = () => {
     setPlusPopupData({
       isOpen: false,
-      section: ""
+      section: "",
+      sectionName: "",
+      targetPath: "",
+      _id: "",
+      insightID: "",
+      applicationType: "Workbench",
+      saving: false,
+      existingBackendData: null
     })
     setPlusInputValue("")
+  }
+
+  // Save handler for plus popup - ONLY adds to local state (shows in UI with highlight)
+  // Does NOT save to DB until Update button is clicked
+  const handleSavePlusInput = () => {
+    if (!plusInputValue.trim() || !plusPopupData._id) {
+      console.error('Missing required data for save:', { plusInputValue, plusPopupData });
+      return;
+    }
+
+    const itemId = plusPopupData._id;
+    const targetPath = plusPopupData.targetPath || 'default';
+    const newInput = {
+      text: plusInputValue.trim(),
+      id: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    };
+
+    // Add to pending inputs (shown in UI with highlight, not saved to DB yet)
+    setPendingUserInputs(prev => {
+      const itemInputs = prev[itemId] || {};
+      const pathInputs = itemInputs[targetPath] || [];
+      return {
+        ...prev,
+        [itemId]: {
+          ...itemInputs,
+          [targetPath]: [...pathInputs, newInput]
+        }
+      };
+    });
+
+    console.log('Added pending input (NOT saved to DB yet):', { itemId, targetPath, newInput });
+    closePlusPopup();
+  }
+
+  // Open delete confirmation popup
+  const openDeleteConfirmation = (itemId: string, targetPath: string, inputId: string, inputText: string) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      itemId,
+      targetPath,
+      inputId,
+      inputText
+    });
+  };
+
+  // Close delete confirmation popup
+  const closeDeleteConfirmation = () => {
+    setDeleteConfirmation({
+      isOpen: false,
+      itemId: '',
+      targetPath: '',
+      inputId: '',
+      inputText: ''
+    });
+  };
+
+  // Confirm and delete pending input
+  const confirmDeletePendingInput = () => {
+    const { itemId, targetPath, inputId } = deleteConfirmation;
+
+    setPendingUserInputs(prev => {
+      const itemInputs = prev[itemId];
+      if (!itemInputs) return prev;
+
+      const pathInputs = itemInputs[targetPath];
+      if (!pathInputs) return prev;
+
+      const filteredInputs = pathInputs.filter(input => input.id !== inputId);
+
+      // If no more inputs for this path, remove the path
+      if (filteredInputs.length === 0) {
+        const { [targetPath]: removed, ...remainingPaths } = itemInputs;
+        // If no more paths for this item, remove the item
+        if (Object.keys(remainingPaths).length === 0) {
+          const { [itemId]: removedItem, ...remainingItems } = prev;
+          return remainingItems;
+        }
+        return {
+          ...prev,
+          [itemId]: remainingPaths
+        };
+      }
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...itemInputs,
+          [targetPath]: filteredInputs
+        }
+      };
+    });
+
+    console.log('Deleted pending input:', { itemId, targetPath, inputId });
+    closeDeleteConfirmation();
+  };
+
+  // Open edit popup
+  const openEditPopup = (itemId: string, targetPath: string, inputId: string, inputText: string) => {
+    setEditPopup({
+      isOpen: true,
+      itemId,
+      targetPath,
+      inputId,
+      inputText
+    });
+    setEditInputValue(inputText);
+  };
+
+  // Close edit popup
+  const closeEditPopup = () => {
+    setEditPopup({
+      isOpen: false,
+      itemId: '',
+      targetPath: '',
+      inputId: '',
+      inputText: ''
+    });
+    setEditInputValue('');
+  };
+
+  // Confirm and save edited pending input
+  const confirmEditPendingInput = () => {
+    const { itemId, targetPath, inputId } = editPopup;
+    const newText = editInputValue.trim();
+
+    if (!newText) return;
+
+    setPendingUserInputs(prev => {
+      const itemInputs = prev[itemId];
+      if (!itemInputs) return prev;
+
+      const pathInputs = itemInputs[targetPath];
+      if (!pathInputs) return prev;
+
+      const updatedInputs = pathInputs.map(input =>
+        input.id === inputId ? { ...input, text: newText } : input
+      );
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...itemInputs,
+          [targetPath]: updatedInputs
+        }
+      };
+    });
+
+    console.log('Edited pending input:', { itemId, targetPath, inputId, newText });
+    closeEditPopup();
+  };
+
+  // Save ALL pending inputs to DB - called when Update button is clicked
+  // IMPORTANT: This merges with existing data to avoid data loss
+  const saveAllPendingInputsToDB = async (itemId: string, item: any) => {
+    const itemPendingInputs = pendingUserInputs[itemId];
+    if (!itemPendingInputs || Object.keys(itemPendingInputs).length === 0) {
+      console.log('No pending inputs to save for item:', itemId);
+      // Just refresh data
+      refetch();
+      return;
+    }
+
+    try {
+      const sectionName = item?.sectionName || "Kiln";
+      const existingData = item?.backendData || {};
+
+      // Deep clone the existing backend data to avoid mutations
+      const mergedSectionData = JSON.parse(JSON.stringify(existingData));
+
+      // Find the next available numeric key in the target path
+      const getNextKey = (obj: any): string => {
+        if (!obj || typeof obj !== 'object') return '1';
+        const numericKeys = Object.keys(obj).filter(k => /^\d+$/.test(k)).map(Number);
+        if (numericKeys.length === 0) return '1';
+        return String(Math.max(...numericKeys) + 1);
+      };
+
+      // Add all pending inputs for each target path
+      for (const [targetPath, inputs] of Object.entries(itemPendingInputs)) {
+        if (targetPath === 'default') continue;
+
+        const pathParts = targetPath.split('.');
+        let current = mergedSectionData;
+
+        // Navigate/create the path
+        for (let i = 0; i < pathParts.length; i++) {
+          const part = pathParts[i];
+          if (i === pathParts.length - 1) {
+            // Last part - this is where we add the new values
+            if (!current[part] || typeof current[part] !== 'object') {
+              current[part] = {};
+            }
+            // Add all pending inputs for this path
+            for (const input of inputs) {
+              const nextKey = getNextKey(current[part]);
+              current[part][nextKey] = input.text;
+            }
+          } else {
+            // Intermediate part - ensure object exists
+            if (!current[part] || typeof current[part] !== 'object') {
+              current[part] = {};
+            }
+            current = current[part];
+          }
+        }
+      }
+
+      // Build the final result with the section name
+      const result: Record<string, any> = {
+        [sectionName]: mergedSectionData
+      };
+
+      const payload = {
+        _id: itemId,
+        insightID: item?.insightID || '',
+        applicationType: item?.applicationType || 'Workbench',
+        result
+      };
+
+      console.log('Saving ALL pending inputs to DB with MERGED payload:', payload);
+
+      const response = await fetch('/jsw-rca-new/api/insights/update', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('Successfully saved all pending inputs to DB:', data);
+        // Clear pending inputs for this item after successful save
+        setPendingUserInputs(prev => {
+          const newState = { ...prev };
+          delete newState[itemId];
+          return newState;
+        });
+        // Refresh data to show updated content without highlights
+        refetch();
+      } else {
+        console.error('Failed to save pending inputs:', data.error);
+        alert('Failed to save: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error saving pending inputs:', error);
+      alert('Error saving. Please try again.');
+    }
   }
 
   // Group data by date for PDF report
@@ -2012,9 +2381,10 @@ const getHighPowerSubsections = (millType: string) => {
             {selectedSection !== "all" && (
               <button
                 onClick={() => setSelectedSection("all")}
-                className="text-sm text-blue-600 hover:text-blue-800 underline"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 bg-white hover:bg-red-50 border border-gray-200 rounded-md shadow-sm transition-colors"
               >
-                Clear Section Filter
+                <X className="w-3.5 h-3.5" />
+                Clear Filter
               </button>
             )}
           </div>
@@ -2104,12 +2474,12 @@ const getHighPowerSubsections = (millType: string) => {
             Normal ({finalFilteredData.filter((item) => item.status.toLowerCase() === "normal").length})
           </div>
           </div>
-          <div className="flex items-center gap-3 justify-end">
+          <div className="flex items-center gap-4 justify-end">
             {statusLegend.map((legend) => (
-              <div key={legend.key} className="flex items-center gap-1 text-sm text-gray-600">
-                <span className={`w-2.5 h-2.5 rounded-full ${legend.color}`}></span>
+              <div key={legend.key} className="flex items-center gap-1.5 text-sm text-gray-600">
+                <span className={`w-3 h-3 rounded-full ${legend.color}`}></span>
                 <span className="font-medium">{legend.label}</span>
-                <span className="text-gray-400">({legend.range})</span>
+                <span className="text-gray-500">({legend.range})</span>
               </div>
             ))}
           </div>
@@ -2446,6 +2816,29 @@ const getHighPowerSubsections = (millType: string) => {
                                       </svg>
                                     </div>
                                     <div className="ml-auto flex items-center gap-2">
+                                      {/* Update Button - Only visible when there are pending inputs */}
+                                      {pendingUserInputs[item?._id] && Object.keys(pendingUserInputs[item?._id] || {}).length > 0 && (
+                                        <Button
+                                          className="relative overflow-hidden transition-all duration-300 ease-in-out bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-5 py-1.5 shadow-lg hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 group text-sm min-w-[100px] animate-pulse ring-2 ring-green-300 ring-offset-1"
+                                          onClick={e => {
+                                            e.stopPropagation();
+                                            // Save all pending inputs to DB, then refresh
+                                            saveAllPendingInputsToDB(item?._id, item);
+                                            console.log('Update clicked - saving pending inputs to DB');
+                                          }}
+                                          title="Save pending inputs to database"
+                                        >
+                                          <span className="inline-flex items-center gap-2">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                            </svg>
+                                            Update
+                                            <span className="bg-white text-green-600 text-xs px-1.5 py-0.5 rounded-full font-bold">
+                                              {Object.values(pendingUserInputs[item?._id] || {}).flat().length}
+                                            </span>
+                                          </span>
+                                        </Button>
+                                      )}
                                       <Button
                                         className="relative overflow-hidden transition-all duration-300 ease-in-out bg-blue-50 hover:bg-blue-100 text-blue-800 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
                                         onClick={e => {
@@ -2494,9 +2887,17 @@ const getHighPowerSubsections = (millType: string) => {
                                             <div className="flex items-center gap-2">
                                               {/* Plus Icon Button */}
                                               <button
-                                                onClick={() => openPlusPopup(item?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down")}
+                                                onClick={() => openPlusPopup(
+                                                  item?.sectionName === "Kiln" ? "Kiln Feed" : "Single RP Down",
+                                                  item?.sectionName || "Kiln",
+                                                  "TPH.one_rp_down",
+                                                  item?._id || "",
+                                                  item?.insightID || "",
+                                                  item?.applicationType || "Workbench",
+                                                  item?.backendData || {}
+                                                )}
                                                 className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
-                                                title="Add to comparison"
+                                                title="Add user note"
                                               >
                                                 <Plus
                                                   className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
@@ -2597,6 +2998,30 @@ const getHighPowerSubsections = (millType: string) => {
                                                       </div>
                                                     )
                                                   }
+                                                  {/* Show pending user inputs with sky blue highlight */}
+                                                  {pendingUserInputs[item?._id]?.['TPH.one_rp_down']?.map((pendingInput) => (
+                                                    <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                                      <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                                      <span className="text-base text-sky-700 font-medium flex-1">
+                                                        {pendingInput.text}
+                                                      </span>
+                                                      <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                                      <button
+                                                        onClick={() => openEditPopup(item?._id, 'TPH.one_rp_down', pendingInput.id, pendingInput.text)}
+                                                        className="p-0.5 hover:bg-blue-100 rounded-full transition-colors flex-shrink-0"
+                                                        title="Edit pending input"
+                                                      >
+                                                        <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                                      </button>
+                                                      <button
+                                                        onClick={() => openDeleteConfirmation(item?._id, 'TPH.one_rp_down', pendingInput.id, pendingInput.text)}
+                                                        className="p-0.5 hover:bg-red-100 rounded-full transition-colors flex-shrink-0"
+                                                        title="Delete pending input"
+                                                      >
+                                                        <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                                      </button>
+                                                    </div>
+                                                  ))}
                                                 </div>
                                               )
                                             }
@@ -2914,6 +3339,9 @@ const getHighPowerSubsections = (millType: string) => {
                                       extractDeviceId={extractDeviceId}
                                       extractSensorIds={extractSensorIds}
                                       extractSensorNames={extractSensorNames}
+                                      pendingUserInputs={pendingUserInputs}
+                                      onDeletePendingInput={openDeleteConfirmation}
+                                      onEditPendingInput={openEditPopup}
                                     />
                                   </AccordionContent>
                                 </AccordionItem>
@@ -4302,20 +4730,93 @@ const getHighPowerSubsections = (millType: string) => {
                   <Button
                     variant="outline"
                     onClick={closePlusPopup}
+                    disabled={plusPopupData.saving}
                   >
                     Cancel
                   </Button>
                   <Button
-                    onClick={() => {
-                      // Handle save action here
-                      console.log('Saved value:', plusInputValue);
-                      closePlusPopup();
-                    }}
+                    onClick={handleSavePlusInput}
+                    disabled={plusPopupData.saving || !plusInputValue.trim()}
                   >
-                    Save
+                    {plusPopupData.saving ? 'Saving...' : 'Save'}
                   </Button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Popup */}
+      {deleteConfirmation.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <X className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Delete Pending Input</h3>
+            </div>
+            <p className="text-gray-600 mb-2">Are you sure you want to delete this pending input?</p>
+            <p className="text-sm text-gray-500 bg-gray-50 p-2 rounded mb-4 italic truncate">
+              "{deleteConfirmation.inputText}"
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={closeDeleteConfirmation}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmDeletePendingInput}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Pending Input Popup */}
+      {editPopup.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-blue-100 rounded-full">
+                <Pencil className="w-5 h-5 text-blue-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Edit Pending Input</h3>
+            </div>
+            <div className="mb-4">
+              <label htmlFor="editInput" className="block text-sm font-medium text-gray-700 mb-2">
+                Edit your note
+              </label>
+              <Input
+                id="editInput"
+                type="text"
+                placeholder="Type here..."
+                value={editInputValue}
+                onChange={(e) => setEditInputValue(e.target.value)}
+                className="w-full"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={closeEditPopup}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmEditPendingInput}
+                disabled={!editInputValue.trim()}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Save
+              </Button>
             </div>
           </div>
         </div>

@@ -1,16 +1,19 @@
 import React from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, X, Pencil } from 'lucide-react';
 
 interface DynamicHighPowerSectionProps {
   item: any; // The actual data item (instead of filteredData + index)
   selectedMillType: string;
   openPopup: (data: any, section: string, backendData: any) => void;
-  openPlusPopup: (section: string) => void;
+  openPlusPopup: (section: string, sectionName?: string, targetPath?: string, _id?: string, insightID?: string, applicationType?: string, existingBackendData?: any) => void;
   shouldShowTrend: (data: any, section: string) => boolean;
   highlightNumbers: (text: any) => React.ReactNode;
   extractDeviceId: (data: any) => string | null;
   extractSensorIds: (data: any, section: string) => string[] | null;
   extractSensorNames: (data: any, section: string) => Record<string, string> | undefined;
+  pendingUserInputs?: Record<string, Record<string, Array<{ text: string; id: string }>>>;
+  onDeletePendingInput?: (itemId: string, targetPath: string, inputId: string, inputText: string) => void;
+  onEditPendingInput?: (itemId: string, targetPath: string, inputId: string, inputText: string) => void;
 }
 
 export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = ({
@@ -22,7 +25,10 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
   highlightNumbers,
   extractDeviceId,
   extractSensorIds,
-  extractSensorNames
+  extractSensorNames,
+  pendingUserInputs = {},
+  onDeletePendingInput,
+  onEditPendingInput
 }) => {
   // Debug logging to verify correct data is being passed
   console.log('=== DynamicHighPowerSection Debug ===');
@@ -128,9 +134,17 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
           <div className="flex items-center gap-2">
             {/* Plus Icon Button */}
             <button
-              onClick={() => openPlusPopup(getDisplayName(key))}
+              onClick={() => openPlusPopup(
+                getDisplayName(key),
+                item?.sectionName || "Kiln",
+                `High_Power.${key}`,
+                item?._id || "",
+                item?.insightID || "",
+                item?.applicationType || "Workbench",
+                item?.backendData || {}
+              )}
               className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
-              title="Add to comparison"
+              title="Add user note"
             >
               <Plus
                 className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
@@ -190,6 +204,35 @@ export const DynamicHighPowerSection: React.FC<DynamicHighPowerSectionProps> = (
             ))}
           </div>
         )}
+
+        {/* Show pending user inputs with sky blue highlight */}
+        {pendingUserInputs[item?._id]?.[`High_Power.${key}`]?.map((pendingInput) => (
+          <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 mt-2 animate-pulse">
+            <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+            <span className="text-base text-sky-700 font-medium flex-1">
+              {pendingInput.text}
+            </span>
+            <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+            {onEditPendingInput && (
+              <button
+                onClick={() => onEditPendingInput(item?._id, `High_Power.${key}`, pendingInput.id, pendingInput.text)}
+                className="p-0.5 hover:bg-blue-100 rounded-full transition-colors flex-shrink-0"
+                title="Edit pending input"
+              >
+                <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+              </button>
+            )}
+            {onDeletePendingInput && (
+              <button
+                onClick={() => onDeletePendingInput(item?._id, `High_Power.${key}`, pendingInput.id, pendingInput.text)}
+                className="p-0.5 hover:bg-red-100 rounded-full transition-colors flex-shrink-0"
+                title="Delete pending input"
+              >
+                <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+              </button>
+            )}
+          </div>
+        ))}
       </div>
     );
   };
