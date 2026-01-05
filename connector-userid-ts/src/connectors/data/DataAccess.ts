@@ -453,7 +453,7 @@ export default class DataAccess {
       // This is a simplified version of pivoting
       // In a real implementation, you'd need a more complex logic depending on your data structure
       const pivotedData: any[] = [];
-      const timestamps = [...new set(cleanedData.map((row) => row.timestamp || row.time))];
+      const timestamps = [...new Set(cleanedData.map((row) => row.timestamp || row.time))];
 
       timestamps.forEach((timestamp) => {
         const rowsAtTimestamp = cleanedData.filter(
