@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const USER_ID = '66792886ef26fb850db806c5';
 const DATA_URL = 'datads-ext.iosense.io';
-const INSIGHT_ID = 'INS_015ce0dcf91c';
+const INSIGHT_ID = 'INS_a7bca70a5160';
 
 // Cache for organization ID
 let cachedOrgId: string | null = null;
