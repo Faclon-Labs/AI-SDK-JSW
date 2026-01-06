@@ -51,6 +51,20 @@ const formatNumber = (value: any): string => {
   return num.toFixed(2);
 };
 
+// Format duration from minutes to "X H : Y M" format
+const formatDurationHM = (minutes: any): string => {
+  if (minutes === null || minutes === undefined || minutes === "N/A") {
+    return "N/A";
+  }
+  const num = parseFloat(minutes);
+  if (isNaN(num)) {
+    return String(minutes);
+  }
+  const hours = Math.floor(num / 60);
+  const mins = Math.round(num % 60);
+  return `${hours} H : ${mins} M`;
+};
+
 const formatTime = (value: any): string => {
   if (value === null || value === undefined || value === "N/A") {
     return "N/A";
@@ -116,6 +130,83 @@ type StoppageTabConfig = {
 };
 
 type SectionStoppageConfig = Partial<Record<StoppageTab, StoppageTabConfig>>;
+
+// Parameter limits for Range column (min/max values)
+const RAW_MILL_LIMITS: Record<string, { min: number; max: number }> = {
+  "Roller Press 1 Movable Roller Power": { min: 599.284580, max: 1091.206288 },
+  "Roller Press 1 Fixed Roller Power": { min: 626.046805, max: 1150.070498 },
+  "Roller Press 2 Fixed Roller Power": { min: 585.759339, max: 1065.187906 },
+  "Roller Press 2 Movable Roller Power": { min: 688.787053, max: 1216.783922 },
+  "SKS Seperator Outlet Temperature": { min: 61.918824, max: 71.027783 },
+  "Roller Press 1 Hydraulic Pressure Left": { min: 75.681436, max: 137.653586 },
+  "Roller Press 1 Hydraulic Pressure Right": { min: 86.134010, max: 154.697027 },
+  "SKS Separator RPM": { min: 1014.064105, max: 1432.239209 },
+  "SKS Seprator Current": { min: 86.890010, max: 127.430927 },
+  "Fan Drive Power": { min: 990.248684, max: 1438.490803 },
+  "Roller Press 2 Hydraulic Pressure Left": { min: 93.624378, max: 155.277121 },
+  "Roller Press 2 Hydraulic Pressure Right": { min: 80.606992, max: 134.541567 },
+  "SKS Fan Speed": { min: 529.556082, max: 754.189084 },
+};
+
+const CEMENT_MILL_LIMITS: Record<string, { min: number; max: number }> = {
+  "Roller Press 1 Fixed Roller Power": { min: 690.903784, max: 1035.154682 },
+  "Roller Press 1 Movable Roller Power": { min: 0.000000, max: 0.000000 },
+  "Roller Press 2 Fixed Roller Power": { min: 769.734188, max: 1157.983937 },
+  "Roller Press 2 Movable Roller Power": { min: 715.828253, max: 1139.109671 },
+  "Roller Press 1 Hydraulic Pressure Left": { min: 118.430495, max: 154.028587 },
+  "SKS Separator drive current": { min: 113.105003, max: 131.879330 },
+  "SKS Separator RPM": { min: 949.579703, max: 1051.098577 },
+  "Fan Drive Power": { min: 766.446035, max: 865.510185 },
+  "Roller Press 2 Hydraulic Pressure Right": { min: 78.944487, max: 111.618723 },
+  "Roller Press 1 Hydraulic Pressure Right": { min: 103.140761, max: 144.399294 },
+  "Roller Press 2 Hydraulic Pressure Left": { min: 106.799157, max: 151.994745 },
+  "Roller Press 1 Gap Left": { min: 93.419144, max: 104.574763 },
+  "Roller Press 1 Gap Right": { min: 73.568126, max: 84.462781 },
+};
+
+const KILN_LIMITS: Record<string, { min: number; max: number }> = {
+  "Kiln feed": { min: 429.4861388, max: 511.4236653 },
+  "Kiln speed": { min: 3.986564273, max: 4.892216668 },
+  "PC Temp": { min: 645.125549, max: 818.8116673 },
+  "Burning zone T": { min: 1239.698724, max: 1402.228981 },
+  "FN5 UG Pressure": { min: 447.5187157, max: 542.1378424 },
+  "FN5 Flow": { min:  96.79272573, max: 69.05000239 },
+  "Tertiary air T": { min: 932.6538653, max: 1046.247187 },
+  "Secondary air T": { min: 996.4587617, max: 1121.030078 },
+  "Mid Tap T": { min: 360.3518517, max: 416.3492013 },
+  "AQC Outlet Draft": { min: 16.81356969, max: 7.579940333 },
+  "Kiln Coal": { min: 9.039419754, max: 10.80020421 },
+  "Low NOx Coal": { min: 5.602024606, max: 9.073801547 },
+  "Clinker T": { min: 131.8877833, max: 188.9223783 },
+  "Cooler Exhaust T": { min: 119.482287, max: 159.8434416 },
+  "BH Inlet T": { min: 78.20536667, max: 86.89206847 },
+  "Cooler BH Fan RPM": { min: 654.2542761, max: 835.8786119 },
+  "Cooler BH Fan Power": { min: 318.9514277, max: 576.7701465 },
+  "kiln coal % by clincker": { min: 2.971164162, max: 3.709403247 },
+  "Solid AFR": { min: 4.233378164, max: 10.66476331 },
+  "low_nox_kcal_kg": { min: 82.36420224, max: 140.9347671 },
+  "low nox coal % by clincker": { min: 1.828491464, max: 3.099769716 },
+  "solid afr % by clincker": { min: 1.411751617, max: 3.52197646 },
+  "NCV (kc)": { min: 7485.321166, max: 7555.11931 },
+  "NCV (pc)": { min: 7065.900551, max: 7249.57564 },
+  "NCV afr": { min: 2861.594346, max: 3213.929464 },
+  "kc_kcal_kg": { min: 141.428194, max: 176.5272551 },
+  "afr_kcal_kg": { min: 27.5515504, max: 66.26552356 },
+  "heat consumption": { min: 648.61, max: 727.75 },
+};
+
+// Function to get limits based on section name
+const getParameterLimits = (sectionName: string): Record<string, { min: number; max: number }> => {
+  const normalizedName = sectionName?.toLowerCase() || '';
+  if (normalizedName.includes('raw mill')) {
+    return RAW_MILL_LIMITS;
+  } else if (normalizedName.includes('cement mill')) {
+    return CEMENT_MILL_LIMITS;
+  } else if (normalizedName.includes('kiln') || normalizedName.includes('klin')) {
+    return KILN_LIMITS;
+  }
+  return {};
+};
 
 const STOPPAGE_CONFIG: Record<'rawMill' | 'cementMill' | 'kiln', SectionStoppageConfig> = {
   rawMill: {
@@ -324,11 +415,14 @@ export default function Component() {
     dataIndex: undefined
   });
 
-  // Add state for parameters sorting
-  const [paramsSortOrder, setParamsSortOrder] = useState<'asc' | 'desc'>('asc');
+  // Add state for parameters sorting - default to 'desc' so green (high Target%) rows are at top
+  const [paramsSortOrder, setParamsSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Add state for info popover
   const [showParamsInfo, setShowParamsInfo] = useState(false);
+
+  // Add state for showing/hiding Range column in parameters table
+  const [showRangeColumn, setShowRangeColumn] = useState(false);
 
   // Add state for user input modal
   const [userInputModal, setUserInputModal] = useState<{
@@ -2537,11 +2631,11 @@ const getHighPowerSubsections = (millType: string) => {
           </CardHeader>
           <CardContent>
 
-            <Table>
+            <Table className="table-fixed w-full">
               <TableHeader>
                 <TableRow>
                   <TableHead
-                    className="w-[200px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    className="w-[16%] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('millName')}
                   >
                     <div className="flex items-center gap-1">
@@ -2554,7 +2648,7 @@ const getHighPowerSubsections = (millType: string) => {
                     </div>
                   </TableHead>
                   <TableHead
-                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    className="w-[16%] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('target')}
                   >
                     <div className="flex items-center gap-1">
@@ -2567,7 +2661,7 @@ const getHighPowerSubsections = (millType: string) => {
                     </div>
                   </TableHead>
                   <TableHead
-                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    className="w-[16%] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('daySPC')}
                   >
                     <div className="flex items-center gap-1">
@@ -2580,7 +2674,7 @@ const getHighPowerSubsections = (millType: string) => {
                     </div>
                   </TableHead>
                   <TableHead
-                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    className="w-[16%] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('deviation')}
                   >
                     <div className="flex items-center gap-1">
@@ -2593,7 +2687,7 @@ const getHighPowerSubsections = (millType: string) => {
                     </div>
                   </TableHead>
                   <TableHead
-                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    className="w-[14%] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('impact')}
                   >
                     <div className="flex items-center gap-1">
@@ -2606,7 +2700,7 @@ const getHighPowerSubsections = (millType: string) => {
                     </div>
                   </TableHead>
                   <TableHead
-                    className="w-[100px] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
+                    className="w-[16%] text-base font-semibold cursor-pointer hover:bg-gray-50 select-none"
                     onClick={() => handleSort('day')}
                   >
                     <div className="flex items-center gap-1">
@@ -2618,13 +2712,16 @@ const getHighPowerSubsections = (millType: string) => {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
+                  <TableHead className="w-[6%]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {finalFilteredData.map((item, index) => (
                   <React.Fragment key={`${item.sectionName}-${item.timestamp}`}>
-                    <TableRow className="hover:bg-gray-50">
+                    <TableRow
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => toggleRowExpansion(index)}
+                    >
                       <TableCell className="font-medium text-base">{item.sectionName}</TableCell>
                       <TableCell className="text-base text-gray-700">
                         {item.backendData?.SPC?.target ? `${formatNumber(item.backendData.SPC.target)} kWh/t` : 'N/A'}
@@ -2682,7 +2779,10 @@ const getHighPowerSubsections = (millType: string) => {
                           variant="ghost"
                           size="sm"
                           className="p-0 h-auto"
-                          onClick={() => toggleRowExpansion(index)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleRowExpansion(index);
+                          }}
                         >
                           {expandedRows.has(index) ? (
                             <ChevronDown className="w-4 h-4 text-gray-400" />
@@ -4025,7 +4125,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   <>
                                     <TableHead className="w-[150px]">Start Time</TableHead>
                                     <TableHead className="w-[150px]">End Time</TableHead>
-                                    <TableHead className="w-[120px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[120px]">Duration</TableHead>
                                     <TableHead className="w-[120px]">Min Value</TableHead>
                                     <TableHead className="w-[120px]">Day Mean</TableHead>
                                     <TableHead className="w-[120px]">Drop %</TableHead>
@@ -4034,7 +4134,7 @@ const getHighPowerSubsections = (millType: string) => {
                                   <>
                                     <TableHead className="w-[150px]">Start Time</TableHead>
                                     <TableHead className="w-[150px]">End Time</TableHead>
-                                    <TableHead className="w-[120px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[120px]">Duration</TableHead>
                                     <TableHead className="w-[120px]">RPs Running</TableHead>
                                     <TableHead className="w-[120px]">Average TPH</TableHead>
                                     <TableHead className="w-[120px]">Minimum TPH</TableHead>
@@ -4045,7 +4145,7 @@ const getHighPowerSubsections = (millType: string) => {
                                     <TableHead className="w-[200px]">Scenario</TableHead>
                                     <TableHead className="w-[150px]">Ramp Start</TableHead>
                                     <TableHead className="w-[150px]">Ramp End</TableHead>
-                                    <TableHead className="w-[150px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[150px]">Duration</TableHead>
                                     <TableHead className="w-[200px]">Stability Reason</TableHead>
                                   </>
                                 ) : (
@@ -4053,7 +4153,7 @@ const getHighPowerSubsections = (millType: string) => {
                                     <TableHead className="w-[200px]">Scenario</TableHead>
                                     <TableHead className="w-[150px]">Ramp Start</TableHead>
                                     <TableHead className="w-[150px]">Ramp End</TableHead>
-                                    <TableHead className="w-[150px]">Duration (min)</TableHead>
+                                    <TableHead className="w-[150px]">Duration</TableHead>
                                     <TableHead className="w-[120px]">Final TPH</TableHead>
                                   </>
                                 )}
@@ -4074,7 +4174,7 @@ const getHighPowerSubsections = (millType: string) => {
                                     <>
                                       <TableCell>{formatTime(item.start)}</TableCell>
                                       <TableCell>{formatTime(item.end)}</TableCell>
-                                      <TableCell>{formatNumber(item.duration_min)}</TableCell>
+                                      <TableCell>{formatDurationHM(item.duration_min)}</TableCell>
                                       <TableCell>{formatNumber(item.min_value)}</TableCell>
                                       <TableCell>{formatNumber(item.day_mean)}</TableCell>
                                       <TableCell>{formatNumber(item.drop_percent)}%</TableCell>
@@ -4083,7 +4183,7 @@ const getHighPowerSubsections = (millType: string) => {
                                     <>
                                       <TableCell>{formatTime(item.period_start)}</TableCell>
                                       <TableCell>{formatTime(item.period_end)}</TableCell>
-                                      <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
+                                      <TableCell>{formatDurationHM(item.duration_minutes)}</TableCell>
                                       <TableCell>{item.pumps_running === 1 ? "Single" : item.pumps_running === 2 ? "Both" : item.pumps_running || "N/A"}</TableCell>
                                       <TableCell>{formatNumber(item.avg_tph)}</TableCell>
                                       <TableCell>{formatNumber(item.min_tph)}</TableCell>
@@ -4094,7 +4194,7 @@ const getHighPowerSubsections = (millType: string) => {
                                       <TableCell className="font-medium">{item.scenario || `Event ${i + 1}`}</TableCell>
                                       <TableCell>{formatTime(item.ramp_start)}</TableCell>
                                       <TableCell>{formatTime(item.ramp_end)}</TableCell>
-                                      <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
+                                      <TableCell>{formatDurationHM(item.duration_minutes)}</TableCell>
                                       <TableCell>{item.stability_reason || ""}</TableCell>
                                     </>
                                   ) : (
@@ -4102,7 +4202,7 @@ const getHighPowerSubsections = (millType: string) => {
                                       <TableCell className="font-medium">{item.scenario || `Event ${i + 1}`}</TableCell>
                                       <TableCell>{formatTime(item.ramp_start) !== 'N/A' && !isNaN(Date.parse(item.ramp_start)) ? formatTime(item.ramp_start) : (item.start_time ? formatTime(item.start_time) : (item.period_start ? formatTime(item.period_start) : 'N/A'))}</TableCell>
                                       <TableCell>{formatTime(item.ramp_end) !== 'N/A' && !isNaN(Date.parse(item.ramp_end)) ? formatTime(item.ramp_end) : (item.end_time ? formatTime(item.end_time) : (item.period_end ? formatTime(item.period_end) : 'N/A'))}</TableCell>
-                                      <TableCell>{formatNumber(item.duration_minutes)}</TableCell>
+                                      <TableCell>{formatDurationHM(item.duration_minutes)}</TableCell>
                                       <TableCell>{formatNumber(item.final_tph)}</TableCell>
                                     </>
                                   )}
@@ -4629,9 +4729,19 @@ const getHighPowerSubsections = (millType: string) => {
                   </PopoverContent>
                 </Popover>
               </div>
-              <button onClick={() => setParametersPopup({ isOpen: false, dataIndex: undefined })} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowRangeColumn(!showRangeColumn)}
+                  className="text-xs"
+                >
+                  {showRangeColumn ? 'Hide Range' : 'Show Range'}
+                </Button>
+                <button onClick={() => setParametersPopup({ isOpen: false, dataIndex: undefined })} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
             </div>
             <div className="p-4">
               <div className="overflow-x-auto">
@@ -4653,18 +4763,23 @@ const getHighPowerSubsections = (millType: string) => {
                         </div>
                       </TableHead>
                       <TableHead className="px-4 py-2 text-center border-b font-semibold">{"> High %"}</TableHead>
+                      {showRangeColumn && (
+                        <TableHead className="px-4 py-2 text-center border-b font-semibold">Range (Min - Max)</TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {(() => {
                       // Get process params from the selected data
                       const selectedData = parametersPopup.dataIndex !== undefined ? finalFilteredData[parametersPopup.dataIndex] : null;
+                      const sectionName = selectedData?.sectionName || '';
+                      const parameterLimits = getParameterLimits(sectionName);
                       let processParams = selectedData?.processParams;
 
                       if (!processParams || processParams.length === 0) {
                         return (
                           <TableRow>
-                            <TableCell colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                            <TableCell colSpan={showRangeColumn ? 5 : 4} className="px-4 py-8 text-center text-gray-500">
                               No process parameters data available
                             </TableCell>
                           </TableRow>
@@ -4680,16 +4795,24 @@ const getHighPowerSubsections = (millType: string) => {
                         }
                       });
 
-                      return sortedParams.map((param, index) => (
-                        <TableRow key={index} className={index % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
-                          <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter}</TableCell>
-                          <TableCell className="px-4 py-2 border-b text-center">{param['<Low%'].toFixed(2)}</TableCell>
-                          <TableCell className={`px-4 py-2 border-b text-center ${getTargetBgColor(param['Target%'])}`}>
-                            {param['Target%'].toFixed(2)}
-                          </TableCell>
-                          <TableCell className="px-4 py-2 border-b text-center">{param['>High%'].toFixed(2)}</TableCell>
-                        </TableRow>
-                      ));
+                      return sortedParams.map((param, index) => {
+                        const limits = parameterLimits[param.Parameter];
+                        return (
+                          <TableRow key={index} className={index % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
+                            <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter}</TableCell>
+                            <TableCell className="px-4 py-2 border-b text-center">{param['<Low%'].toFixed(2)}</TableCell>
+                            <TableCell className={`px-4 py-2 border-b text-center ${getTargetBgColor(param['Target%'])}`}>
+                              {param['Target%'].toFixed(2)}
+                            </TableCell>
+                            <TableCell className="px-4 py-2 border-b text-center">{param['>High%'].toFixed(2)}</TableCell>
+                            {showRangeColumn && (
+                              <TableCell className="px-4 py-2 border-b text-center text-gray-600">
+                                {limits ? `${limits.min.toFixed(2)} - ${limits.max.toFixed(2)}` : 'N/A'}
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        );
+                      });
                     })()}
                   </TableBody>
                 </Table>

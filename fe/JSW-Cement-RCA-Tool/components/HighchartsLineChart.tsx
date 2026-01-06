@@ -1,6 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
+
+// Import Highcharts modules for better zoom/scroll functionality (client-side only)
+if (typeof window !== 'undefined' && typeof Highcharts === 'object') {
+  try {
+    const boost = require('highcharts/modules/boost');
+    boost(Highcharts);
+  } catch (e) {
+    console.log('Highcharts boost module not available');
+  }
+}
 
 // Add prop types
 interface EventRange {
@@ -721,10 +731,10 @@ export default function HighchartsLineChart({
       style: {
         fontFamily: 'Inter, system-ui, sans-serif'
       },
-      zoomType: 'xy',
+      zoomType: 'x',
       panning: {
         enabled: true,
-        type: 'xy'
+        type: 'x'
       },
       panKey: 'shift',
       resetZoomButton: {
@@ -745,6 +755,43 @@ export default function HighchartsLineChart({
                 color: 'white'
               }
             }
+          }
+        }
+      },
+      events: {
+        load: function(this: any) {
+          const chart = this;
+          // Add mouse wheel zoom support
+          const container = chart.container;
+          if (container) {
+            container.addEventListener('wheel', function(e: WheelEvent) {
+              e.preventDefault();
+              const xAxis = chart.xAxis[0];
+              const extremes = xAxis.getExtremes();
+              const range = extremes.max - extremes.min;
+              const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9; // Zoom out/in
+              const newRange = range * zoomFactor;
+
+              // Get mouse position relative to chart
+              const chartX = e.offsetX - chart.plotLeft;
+              const chartWidth = chart.plotWidth;
+              const mouseRatio = chartX / chartWidth;
+
+              // Calculate new min/max centered on mouse position
+              const newMin = extremes.min + (range - newRange) * mouseRatio;
+              const newMax = newMin + newRange;
+
+              // Clamp to data range
+              const dataMin = extremes.dataMin;
+              const dataMax = extremes.dataMax;
+
+              if (newMin >= dataMin && newMax <= dataMax) {
+                xAxis.setExtremes(newMin, newMax, true, false);
+              } else if (newRange >= (dataMax - dataMin)) {
+                // Reset to full view if zoomed out too much
+                xAxis.setExtremes(dataMin, dataMax, true, false);
+              }
+            }, { passive: false });
           }
         }
       }
@@ -931,7 +978,25 @@ export default function HighchartsLineChart({
       enabled: false
     },
     scrollbar: {
-      enabled: false
+      enabled: true,
+      barBackgroundColor: '#e5e7eb',
+      barBorderRadius: 4,
+      barBorderWidth: 0,
+      buttonBackgroundColor: '#f3f4f6',
+      buttonBorderWidth: 0,
+      buttonBorderRadius: 4,
+      buttonArrowColor: '#6b7280',
+      rifleColor: '#9ca3af',
+      trackBackgroundColor: '#f9fafb',
+      trackBorderWidth: 1,
+      trackBorderColor: '#e5e7eb',
+      trackBorderRadius: 4,
+      height: 14,
+      liveRedraw: true
+    },
+    boost: {
+      useGPUTranslations: true,
+      seriesThreshold: 1
     }
   };
 
