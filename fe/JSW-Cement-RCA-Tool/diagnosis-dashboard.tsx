@@ -138,11 +138,16 @@ const RAW_MILL_LIMITS: Record<string, { min: number; max: number }> = {
   "Roller Press 2 Fixed Roller Power": { min: 585.759339, max: 1065.187906 },
   "Roller Press 2 Movable Roller Power": { min: 688.787053, max: 1216.783922 },
   "SKS Seperator Outlet Temperature": { min: 61.918824, max: 71.027783 },
+  "Separator Outlet Temperature": { min: 61.918824, max: 71.027783 }, // Alternate name
   "Roller Press 1 Hydraulic Pressure Left": { min: 75.681436, max: 137.653586 },
   "Roller Press 1 Hydraulic Pressure Right": { min: 86.134010, max: 154.697027 },
   "SKS Separator RPM": { min: 1014.064105, max: 1432.239209 },
+  "Separator Speed": { min: 1014.064105, max: 1432.239209 }, // Alternate name
   "SKS Seprator Current": { min: 86.890010, max: 127.430927 },
+  "Separator Current": { min: 86.890010, max: 127.430927 }, // Alternate name
   "Fan Drive Power": { min: 990.248684, max: 1438.490803 },
+  "SKS Fan Power": { min: 990.248684, max: 1438.490803 }, // Alternate name
+  "Fan Power": { min: 990.248684, max: 1438.490803 }, // Alternate name
   "Roller Press 2 Hydraulic Pressure Left": { min: 93.624378, max: 155.277121 },
   "Roller Press 2 Hydraulic Pressure Right": { min: 80.606992, max: 134.541567 },
   "SKS Fan Speed": { min: 529.556082, max: 754.189084 },
@@ -155,8 +160,11 @@ const CEMENT_MILL_LIMITS: Record<string, { min: number; max: number }> = {
   "Roller Press 2 Movable Roller Power": { min: 715.828253, max: 1139.109671 },
   "Roller Press 1 Hydraulic Pressure Left": { min: 118.430495, max: 154.028587 },
   "SKS Separator drive current": { min: 113.105003, max: 131.879330 },
+  "Separator Current": { min: 113.105003, max: 131.879330 }, // Alternate name
   "SKS Separator RPM": { min: 949.579703, max: 1051.098577 },
+  "Separator Speed": { min: 949.579703, max: 1051.098577 }, // Alternate name
   "Fan Drive Power": { min: 766.446035, max: 865.510185 },
+  "Fan Power": { min: 766.446035, max: 865.510185 }, // Alternate name
   "Roller Press 2 Hydraulic Pressure Right": { min: 78.944487, max: 111.618723 },
   "Roller Press 1 Hydraulic Pressure Right": { min: 103.140761, max: 144.399294 },
   "Roller Press 2 Hydraulic Pressure Left": { min: 106.799157, max: 151.994745 },
@@ -4690,8 +4698,17 @@ const getHighPowerSubsections = (millType: string) => {
 
       {/* Parameters Popup Modal */}
       {parametersPopup.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg">
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => {
+            setShowRangeColumn(false);
+            setParametersPopup({ isOpen: false, dataIndex: undefined });
+          }}
+        >
+          <div
+            className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between p-4 border-b">
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-gray-900">
@@ -4738,7 +4755,10 @@ const getHighPowerSubsections = (millType: string) => {
                 >
                   {showRangeColumn ? 'Hide Range' : 'Show Range'}
                 </Button>
-                <button onClick={() => setParametersPopup({ isOpen: false, dataIndex: undefined })} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <button onClick={() => {
+                    setShowRangeColumn(false);
+                    setParametersPopup({ isOpen: false, dataIndex: undefined });
+                  }} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
