@@ -18,7 +18,7 @@ async function testConnection() {
     console.log('- date range: 2025-06-22 to 2025-06-23');
     
     const result = await bruceHandler.fetchInsightResults({
-      insightId: 'INS_a7bca70a5160',
+      insightId: 'IINS_a7bca70a5160',
       filter: { 
         startDate: '2025-06-22T00:00:00Z',
         endDate: '2025-06-23T23:59:59Z'

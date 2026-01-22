@@ -7,12 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench, Info, Plus, Pencil } from "lucide-react"
+import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Search, Settings, X, Wrench, Info, Plus, Pencil, LineChart } from "lucide-react"
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useDiagnosticData, ProcessParam } from "./hooks/useDiagnosticData"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import TrendChart from "./components/TrendChart"
+import HighchartsLineChart from "./components/HighchartsLineChart"
 import { TimeRangePicker, TimeRange } from "./components/ui/TimeRangePicker";
 import { Popover, PopoverTrigger, PopoverContent } from "./components/ui/popover";
 import { Component as LumaSpin } from "./components/ui/luma-spin";
@@ -178,11 +179,11 @@ const KILN_LIMITS: Record<string, { min: number; max: number }> = {
   "PC Temp": { min: 645.125549, max: 818.8116673 },
   "Burning zone T": { min: 1239.698724, max: 1402.228981 },
   "FN5 UG Pressure": { min: 447.5187157, max: 542.1378424 },
-  "FN5 Flow": { min:  96.79272573, max: 69.05000239 },
+  "FN5 Flow": { min:  -96.79272573, max: -69.05000239 },
   "Tertiary air T": { min: 932.6538653, max: 1046.247187 },
   "Secondary air T": { min: 996.4587617, max: 1121.030078 },
   "Mid Tap T": { min: 360.3518517, max: 416.3492013 },
-  "AQC Outlet Draft": { min: 16.81356969, max: 7.579940333 },
+  "AQC Outlet Draft": { min: -16.81356969, max: -7.579940333 },
   "Kiln Coal": { min: 9.039419754, max: 10.80020421 },
   "Low NOx Coal": { min: 5.602024606, max: 9.073801547 },
   "Clinker T": { min: 131.8877833, max: 188.9223783 },
@@ -228,6 +229,41 @@ const STOPPAGE_CONFIG: Record<'rawMill' | 'cementMill' | 'kiln', SectionStoppage
   kiln: {
     klin: { moduleId: '678a5130968af66961edb33f', eventId: '6789efa254a32d61619e3c5b' }
   }
+};
+
+// Known sensor-to-device mappings - override incorrect API device IDs
+// This mapping is used to determine if a parameter has graph data available
+const KNOWN_SENSOR_DEVICE_OVERRIDES: Record<string, string> = {
+  'D63': 'ABBBHPH_A1',      // Kiln Feed - must use PH Fan device
+  'D2': 'ABBKLNAFRSGC_A1',  // AFR sensor
+  'D78': 'ABBCLR_A1',       // FN5 Flow - Cooler device
+  'D79': 'ABBCLR_A1',       // FN5 UG Pressure - Cooler device
+  'D115': 'ABBCLR_A1',      // Cooler BH Fan RPM - Cooler device
+  'D116': 'ABBCLR_A1',      // Cooler BH Fan Power - Cooler device
+  'D67': 'ABBCLR_A1',       // BH Inlet T - Cooler device
+  'D118': 'ABBCLR_A1',      // Cooler Exhaust T - Cooler device
+  'D120': 'ABBCLR_A1',      // Mid Tap T - Cooler device
+  'D114': 'ABBCLR_A1',      // Clinker T - Cooler device
+  'D106': 'ABBKLN_A1',      // Secondary Air Temperature
+  'D154': 'ABBKLN_A1',      // Kiln coal
+  'D155': 'ABBKLN_A1',      // PC coal
+  'D156': 'ABBKLN_A1',      // Low NOx coal
+  'D49': 'ABBRWML_A1',      // Raw Mill TPH
+  'D132': 'ABBBCML_A1',     // Cement Mill TPH
+};
+
+// Helper function to check if a parameter has graph data available
+const hasGraphDataForParam = (param: ProcessParam): boolean => {
+  const sensorId = param.sensor_id || (param as any).sensorId;
+  if (!sensorId) return false;
+
+  // Check if sensor_id is in known overrides or if device_id is provided
+  const deviceId = param.device_id || (param as any).deviceId;
+  if (deviceId) return true;
+
+  // For formulas like "D63-D132", extract the first sensor and check if it's in overrides
+  const sensors = sensorId.split(/[-+*/]/).map((s: string) => s.trim());
+  return sensors.some((s: string) => KNOWN_SENSOR_DEVICE_OVERRIDES[s]);
 };
 
 const TIME_STRING_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/;
@@ -431,6 +467,23 @@ export default function Component() {
 
   // Add state for showing/hiding Range column in parameters table
   const [showRangeColumn, setShowRangeColumn] = useState(false);
+
+  // Add state for parameter graph popup
+  const [paramGraphPopup, setParamGraphPopup] = useState<{
+    isOpen: boolean;
+    parameter: ProcessParam | null;
+    sectionName: string;
+    queryTime?: string[];
+    loading: boolean;
+    graphData: any[];
+  }>({
+    isOpen: false,
+    parameter: null,
+    sectionName: '',
+    queryTime: undefined,
+    loading: false,
+    graphData: []
+  });
 
   // Add state for user input modal
   const [userInputModal, setUserInputModal] = useState<{
@@ -725,7 +778,8 @@ const getHighPowerSubsections = (millType: string) => {
         "phf1",
         "phf2",
         "Klin_main_drive_1",
-        "Klin_main_drive_2"
+        "Klin_main_drive_2",
+        "cooler_fan"
       ];
     case "Raw Mill":
     default:
@@ -982,7 +1036,7 @@ const getHighPowerSubsections = (millType: string) => {
     }
     
     // Special handling for High Power subsections
-    if (["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "OPC Mill Feeding", "Pre Process", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Kiln Main Drive 1", "Kiln Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(section)) {
+    if (["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "OPC Mill Feeding", "Pre Process", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Kiln Main Drive 1", "Kiln Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2", "Cooler Fan", "cooler_fan"].includes(section)) {
       // For High Power subsections, check if the specific subsection has sensor data
       let subsectionData = null;
       let subsectionKey = "";
@@ -1040,8 +1094,17 @@ const getHighPowerSubsections = (millType: string) => {
           subsectionData = data?.High_Power?.Klin_main_drive_2;
           subsectionKey = "Klin_main_drive_2";
           break;
+        case "Cooler Fan":
+        case "cooler_fan":
+          subsectionData = data?.High_Power?.cooler_fan;
+          subsectionKey = "cooler_fan";
+          // For Cooler Fan, check if events data exists (for table) or sensor data (for trend)
+          if (subsectionData?.events && Array.isArray(subsectionData.events) && subsectionData.events.length > 0) {
+            return true; // Enable if events data exists
+          }
+          break;
       }
-      
+
       // Check if subsection has sensor information
       if (!subsectionData || !subsectionData.sensor) {
         return false; // Disable trend if no sensor data available
@@ -1278,6 +1341,339 @@ const getHighPowerSubsections = (millType: string) => {
     })
     setPlusInputValue("")
   }
+
+  // Helper function to parse sensor formula and extract sensor IDs
+  const parseSensorFormula = (formula: string): { sensors: string[], isFormula: boolean } => {
+    // Extract all sensor IDs (pattern: D followed by digits)
+    const sensorMatches = formula.match(/D\d+/g);
+    if (!sensorMatches) {
+      return { sensors: [formula], isFormula: false };
+    }
+    // Check if it's a formula (contains operators)
+    const isFormula = /[\+\-\*\/]/.test(formula);
+    // Get unique sensors
+    const uniqueSensors = [...new Set(sensorMatches)];
+    return { sensors: uniqueSensors, isFormula };
+  };
+
+  // Helper function to evaluate formula with sensor values
+  const evaluateFormula = (formula: string, sensorValues: Record<string, number>): number | null => {
+    try {
+      // Replace sensor IDs with their values
+      let expression = formula;
+      for (const [sensorId, value] of Object.entries(sensorValues)) {
+        expression = expression.replace(new RegExp(sensorId, 'g'), String(value));
+      }
+      // Safely evaluate the expression (only allows numbers and math operators)
+      if (!/^[\d\s\+\-\*\/\.\(\)]+$/.test(expression)) {
+        console.warn('Invalid expression after substitution:', expression);
+        return null;
+      }
+      // eslint-disable-next-line no-eval
+      return eval(expression);
+    } catch (error) {
+      console.error('Error evaluating formula:', error);
+      return null;
+    }
+  };
+
+  // Open parameter graph popup and fetch sensor data with LSL/USL lines
+  // Now accepts allProcessParams to look up device_id for each sensor in formula calculations
+  const openParamGraphPopup = async (param: ProcessParam, sectionName: string, queryTime?: string[], allProcessParams?: ProcessParam[]) => {
+    setParamGraphPopup({
+      isOpen: true,
+      parameter: param,
+      sectionName: sectionName,
+      queryTime: queryTime,
+      loading: true,
+      graphData: []
+    });
+
+    // Support both naming conventions: snake_case and camelCase
+    const paramDeviceId = param.device_id || (param as any).deviceId;
+    const paramSensorId = param.sensor_id || (param as any).sensorId;
+
+    // sensor_id is required - device_id can be looked up from KNOWN_SENSOR_DEVICE_OVERRIDES
+    if (!paramSensorId) {
+      console.log(`No sensor_id for ${param.Parameter}, skipping graph popup`);
+      setParamGraphPopup(prev => ({ ...prev, loading: false }));
+      return;
+    }
+
+    // Store sensor_id in const after the guard
+    const sensorId = paramSensorId;
+
+    // Use module-level KNOWN_SENSOR_DEVICE_OVERRIDES to get the correct device ID
+    // Check if sensor_id is in the known overrides and use correct device ID
+    const deviceId = KNOWN_SENSOR_DEVICE_OVERRIDES[sensorId] || paramDeviceId;
+
+    // If we still don't have a device_id, we can't fetch data
+    if (!deviceId) {
+      console.log(`No device_id available for sensor ${sensorId}, skipping graph popup`);
+      setParamGraphPopup(prev => ({ ...prev, loading: false }));
+      return;
+    }
+    console.log(`Device ID for ${sensorId}: API returned ${paramDeviceId}, using ${deviceId}`);
+
+    try {
+      let startTime: string;
+      let endTime: string;
+
+      if (queryTime && queryTime.length >= 2) {
+        startTime = queryTime[0];
+        endTime = queryTime[1];
+      } else {
+        const now = new Date();
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        startTime = yesterday.toISOString().replace('T', ' ').substring(0, 19);
+        endTime = now.toISOString().replace('T', ' ').substring(0, 19);
+      }
+
+      const { sensors, isFormula } = parseSensorFormula(sensorId);
+      console.log('Parsed formula:', { sensor_id: sensorId, sensors, isFormula, allProcessParamsLength: allProcessParams?.length });
+
+      // For formulas, we need to look up device_id for each sensor from allProcessParams
+      // Build a sensor-to-device mapping from the process_params array
+      const buildSensorDeviceMapping = (): Record<string, string> => {
+        const mapping: Record<string, string> = {};
+
+        // First, try to build mapping from simple (non-formula) sensors in allProcessParams
+        if (allProcessParams) {
+          allProcessParams.forEach(p => {
+            if (p.sensor_id && p.device_id) {
+              const { sensors: sensorIds, isFormula: isFormulaParam } = parseSensorFormula(p.sensor_id);
+              // For simple sensors (non-formula), map the sensor_id to device_id
+              if (!isFormulaParam && sensorIds.length === 1) {
+                mapping[sensorIds[0]] = p.device_id;
+              }
+            }
+          });
+        }
+
+        // Known sensor-to-device mappings for formula calculations
+        // These sensors are used in formulas but belong to specific devices:
+        // D63 (Kiln Feed) -> ABBBHPH_A1
+        // Use the module-level KNOWN_SENSOR_DEVICE_OVERRIDES for formula calculations
+        // These ALWAYS override any device_id from the API
+        Object.entries(KNOWN_SENSOR_DEVICE_OVERRIDES).forEach(([sensorId, correctDeviceId]) => {
+          mapping[sensorId] = correctDeviceId;  // Always use the known correct device ID
+        });
+
+        return mapping;
+      };
+
+      const sensorDeviceMapping = buildSensorDeviceMapping();
+      console.log('Sensor to device mapping:', sensorDeviceMapping);
+
+      if (isFormula && sensors.length > 1) {
+        // Formula with multiple sensors - check if they belong to different devices
+        const deviceGroups: Record<string, string[]> = {};
+
+        sensors.forEach(sensor => {
+          // Look up device_id from mapping, fall back to deviceId (from outer scope)
+          const sensorDeviceId = sensorDeviceMapping[sensor] || deviceId || 'unknown';
+          if (!deviceGroups[sensorDeviceId]) {
+            deviceGroups[sensorDeviceId] = [];
+          }
+          deviceGroups[sensorDeviceId].push(sensor);
+        });
+
+        console.log('Device groups for formula:', deviceGroups);
+        const deviceIds = Object.keys(deviceGroups);
+
+        if (deviceIds.length > 1) {
+          // Multiple devices - fetch from each device and merge
+          console.log('Fetching from multiple devices:', deviceIds);
+
+          const fetchPromises = deviceIds.map(async (deviceId) => {
+            const sensorsForDevice = deviceGroups[deviceId];
+            console.log(`Fetching sensors ${sensorsForDevice.join(', ')} from device ${deviceId}`);
+
+            const response = await fetch('/jsw-rca-new/api/trend', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                deviceId,
+                sensorList: sensorsForDevice,
+                startTime,
+                endTime
+              })
+            });
+
+            const result = await response.json();
+            return { deviceId, sensors: sensorsForDevice, data: result.success ? result.data : [] };
+          });
+
+          const results = await Promise.all(fetchPromises);
+          console.log('Multi-device fetch results:', results.map(r => ({ deviceId: r.deviceId, dataLength: r.data?.length || 0 })));
+
+          // Merge data by nearest timestamp (within 2 minute window)
+          // First, collect all data with timestamps as numbers
+          const allDataByDevice: Record<string, Array<{ timestamp: number, time: string, values: Record<string, any> }>> = {};
+
+          results.forEach(({ deviceId, data }) => {
+            if (data && Array.isArray(data)) {
+              allDataByDevice[deviceId] = data.map((dataPoint: any) => {
+                const time = dataPoint.time || dataPoint.timestamp;
+                const timestamp = new Date(time).getTime();
+                const values: Record<string, any> = {};
+                Object.keys(dataPoint).forEach(key => {
+                  if (key !== 'time' && key !== 'timestamp') {
+                    values[key] = dataPoint[key];
+                  }
+                });
+                return { timestamp, time, values };
+              }).sort((a, b) => a.timestamp - b.timestamp);
+            }
+          });
+
+          console.log('Data by device:', Object.keys(allDataByDevice).map(d => ({ device: d, count: allDataByDevice[d]?.length || 0 })));
+
+          // Use the first device's data as the base timeline and find nearest matches from other devices
+          const deviceIdsList = Object.keys(allDataByDevice);
+          const baseDeviceId = deviceIdsList[0];
+          const baseData = allDataByDevice[baseDeviceId] || [];
+          const otherDevices = deviceIdsList.slice(1);
+
+          // Helper function to find nearest data point within a time window (2 minutes = 120000ms)
+          const findNearestDataPoint = (targetTimestamp: number, dataArray: Array<{ timestamp: number, values: Record<string, any> }>, maxDiffMs: number = 120000) => {
+            let nearest = null;
+            let minDiff = Infinity;
+            for (const point of dataArray) {
+              const diff = Math.abs(point.timestamp - targetTimestamp);
+              if (diff < minDiff && diff <= maxDiffMs) {
+                minDiff = diff;
+                nearest = point;
+              }
+              // Since data is sorted, if we've gone past the target by more than maxDiff, we can stop
+              if (point.timestamp > targetTimestamp + maxDiffMs) break;
+            }
+            return nearest;
+          };
+
+          // Merge: for each point in base data, find nearest from other devices
+          const mergedData: any[] = [];
+          baseData.forEach(basePoint => {
+            const merged: any = { time: basePoint.time, ...basePoint.values };
+
+            // Find nearest points from other devices
+            otherDevices.forEach(deviceId => {
+              const otherData = allDataByDevice[deviceId] || [];
+              const nearestPoint = findNearestDataPoint(basePoint.timestamp, otherData);
+              if (nearestPoint) {
+                Object.assign(merged, nearestPoint.values);
+              }
+            });
+
+            mergedData.push(merged);
+          });
+
+          console.log('Merged data length:', mergedData.length);
+          if (mergedData.length > 0) {
+            console.log('Sample merged data point:', mergedData[0]);
+            console.log('Sensors needed:', sensors);
+          }
+
+          // Calculate formula values
+          const processedData = mergedData.map((dataPoint: any) => {
+            const sensorValues: Record<string, number> = {};
+            sensors.forEach(sensor => {
+              if (dataPoint[sensor] !== undefined) {
+                sensorValues[sensor] = parseFloat(dataPoint[sensor]);
+              }
+            });
+
+            if (Object.keys(sensorValues).length === sensors.length) {
+              const calculatedValue = evaluateFormula(sensorId, sensorValues);
+              const timeValue = dataPoint.time;
+              const timestamp = typeof timeValue === 'string' ? new Date(timeValue).getTime() : timeValue;
+              return { timestamp, time: timeValue, [sensorId]: calculatedValue };
+            }
+            return { time: dataPoint.time, [sensorId]: null };
+          }).filter((dp: any) => dp[sensorId] !== null);
+
+          console.log('Processed formula data length:', processedData.length);
+          setParamGraphPopup(prev => ({ ...prev, loading: false, graphData: processedData }));
+          return;
+        }
+      }
+
+      // Single device fetch (original logic for simple sensors or formulas from same device)
+      const response = await fetch('/jsw-rca-new/api/trend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: deviceId,
+          sensorList: sensors,
+          startTime,
+          endTime
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        let processedData = result.data;
+
+        if (isFormula && result.data.length > 0) {
+          // Formula sensor - calculate value and use sensorId as key
+          processedData = result.data.map((dataPoint: any) => {
+            const sensorValues: Record<string, number> = {};
+            sensors.forEach(sensor => {
+              if (dataPoint[sensor] !== undefined) {
+                sensorValues[sensor] = parseFloat(dataPoint[sensor]);
+              }
+            });
+
+            if (Object.keys(sensorValues).length === sensors.length) {
+              const calculatedValue = evaluateFormula(sensorId, sensorValues);
+              return { time: dataPoint.time, [sensorId]: calculatedValue };
+            }
+            return { time: dataPoint.time, [sensorId]: null };
+          }).filter((dp: any) => dp[sensorId] !== null);
+        } else if (result.data.length > 0) {
+          // Simple sensor - rename the sensor key to sensorId for consistency
+          const sensorKey = sensors[0];
+          console.log('Simple sensor data processing:', { sensorKey, sensor_id: sensorId });
+          console.log('Sample data point:', result.data[0]);
+          console.log('Available keys in data point:', Object.keys(result.data[0]));
+          console.log('Value for sensorKey:', result.data[0][sensorKey]);
+          processedData = result.data.map((dataPoint: any) => {
+            const timeValue = dataPoint.time || dataPoint.timestamp;
+            const sensorValue = dataPoint[sensorKey];
+            // Convert timestamp to numeric if it's a string
+            const timestamp = typeof timeValue === 'string' ? new Date(timeValue).getTime() : timeValue;
+            return {
+              timestamp: timestamp,
+              time: timeValue,
+              [sensorId]: sensorValue !== undefined ? parseFloat(sensorValue) : 0
+            };
+          });
+          console.log('Processed data sample:', processedData[0]);
+          console.log('Processed data length:', processedData.length);
+        }
+
+        setParamGraphPopup(prev => ({ ...prev, loading: false, graphData: processedData }));
+      } else {
+        setParamGraphPopup(prev => ({ ...prev, loading: false, graphData: [] }));
+      }
+    } catch (error) {
+      console.error('Error fetching graph data:', error);
+      setParamGraphPopup(prev => ({ ...prev, loading: false, graphData: [] }));
+    }
+  };
+
+  // Close parameter graph popup
+  const closeParamGraphPopup = () => {
+    setParamGraphPopup({
+      isOpen: false,
+      parameter: null,
+      sectionName: '',
+      queryTime: undefined,
+      loading: false,
+      graphData: []
+    });
+  };
 
   // Save handler for plus popup - ONLY adds to local state (shows in UI with highlight)
   // Does NOT save to DB until Update button is clicked
@@ -1738,39 +2134,44 @@ const getHighPowerSubsections = (millType: string) => {
               tphItems.push(`Target TPH: ${formatNumber(tph.target)}`);
             }
             
-            // Add TPH subsections
+            // Add TPH subsections - filter out numeric keys and show only values with bullets
             if (tph.one_rp_down && typeof tph.one_rp_down === 'object') {
               tphItems.push('Single RP Down Analysis:');
               Object.entries(tph.one_rp_down).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  tphItems.push(`  • ${key}: ${value}`);
+                  // If key is numeric, show only the value; otherwise show key: value
+                  const isNumericKey = !isNaN(Number(key));
+                  tphItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
-            
+
             if (tph.both_rp_down && typeof tph.both_rp_down === 'object') {
               tphItems.push('Both RP Down Analysis:');
               Object.entries(tph.both_rp_down).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  tphItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  tphItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
-            
+
             if (tph["Reduced Feed Operations"] && typeof tph["Reduced Feed Operations"] === 'object') {
               tphItems.push('Reduced Feed Operations:');
               Object.entries(tph["Reduced Feed Operations"]).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  tphItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  tphItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
-            
+
             if (tph.ball_mill && typeof tph.ball_mill === 'object') {
               tphItems.push('Ball Mill Analysis:');
               Object.entries(tph.ball_mill).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  tphItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  tphItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
@@ -1796,61 +2197,66 @@ const getHighPowerSubsections = (millType: string) => {
               hpItems.push('SKS Fan Analysis:');
               Object.entries(hp.SKS_FAN).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  hpItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  hpItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
-            
+
             if (hp.mill_auxiliaries && typeof hp.mill_auxiliaries === 'object') {
               hpItems.push('Mill Auxiliaries Analysis:');
               Object.entries(hp.mill_auxiliaries).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  hpItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  hpItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
-            
+
             if (hp.product_transportation && typeof hp.product_transportation === 'object') {
               hpItems.push('Product Transportation Analysis:');
               Object.entries(hp.product_transportation).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  hpItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  hpItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
-            
+
             // RP1 - Show only cause
             if (hp.rp1 && typeof hp.rp1 === 'object') {
               hpItems.push('RP1 Analysis:');
               if (hp.rp1.cause && typeof hp.rp1.cause === 'string' && hp.rp1.cause.length > 0) {
-                hpItems.push(`  • Cause: ${hp.rp1.cause}`);
+                hpItems.push(`  • ${hp.rp1.cause}`);
               }
             }
-            
+
             // RP2 - Show only cause
             if (hp.rp2 && typeof hp.rp2 === 'object') {
               hpItems.push('RP2 Analysis:');
               if (hp.rp2.cause && typeof hp.rp2.cause === 'string' && hp.rp2.cause.length > 0) {
-                hpItems.push(`  • Cause: ${hp.rp2.cause}`);
+                hpItems.push(`  • ${hp.rp2.cause}`);
               }
             }
-            
+
             // PHF1 - Preheater Fan 1
             if (hp.phf1 && typeof hp.phf1 === 'object') {
               hpItems.push('Preheater Fan 1 Analysis:');
               Object.entries(hp.phf1).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  hpItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  hpItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
-            
+
             // PHF2 - Preheater Fan 2
             if (hp.phf2 && typeof hp.phf2 === 'object') {
               hpItems.push('Preheater Fan 2 Analysis:');
               Object.entries(hp.phf2).forEach(([key, value]) => {
                 if (typeof value === 'string' && value.length > 0) {
-                  hpItems.push(`  • ${key}: ${value}`);
+                  const isNumericKey = !isNaN(Number(key));
+                  hpItems.push(isNumericKey ? `  • ${value}` : `  • ${key}: ${value}`);
                 }
               });
             }
@@ -1974,15 +2380,368 @@ const getHighPowerSubsections = (millType: string) => {
             
             yPosition += 10; // Space between sections
           });
-          
+
+          // Process Parameters Section
+          if (item.processParams && item.processParams.length > 0) {
+            // Check if we need a new page
+            if (yPosition > pageHeight - 100) {
+              doc.addPage();
+              yPosition = 20;
+
+              // Add header to new page
+              doc.setFillColor(52, 152, 219);
+              doc.rect(0, 0, pageWidth, 20, 'F');
+              doc.setTextColor(255, 255, 255);
+              doc.setFontSize(12);
+              doc.setFont('helvetica', 'bold');
+              doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+              doc.setTextColor(44, 62, 80);
+              yPosition = 40;
+            }
+
+            // Process Parameters title with section name
+            doc.setFillColor(236, 240, 241);
+            doc.rect(margin - 5, yPosition - 8, pageWidth - 2 * margin + 10, 12, 'F');
+
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(44, 62, 80);
+            // Add section-specific label
+            const sectionLabel = item.sectionName ? `${item.sectionName} - Process Parameters` : 'Process Parameters';
+            doc.text(sectionLabel, margin, yPosition);
+            yPosition += 15;
+
+            // Sort parameters (show all, don't filter by device_id/sensor_id)
+            const sortedParams = [...item.processParams].sort((a: any, b: any) => (a['Target%'] || 0) - (b['Target%'] || 0));
+
+            if (sortedParams.length > 0) {
+              // Table headers
+              const paramHeaders = ['Parameter', '< Low %', 'Target %', '> High %'];
+              const colWidths = [70, 30, 30, 30];
+
+              // Draw header row
+              doc.setFillColor(52, 152, 219);
+              doc.rect(margin, yPosition - 5, pageWidth - 2 * margin, 10, 'F');
+
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(255, 255, 255);
+
+              let xPos = margin + 2;
+              paramHeaders.forEach((header, i) => {
+                doc.text(header, xPos, yPosition);
+                xPos += colWidths[i];
+              });
+              yPosition += 10;
+
+              // Draw data rows (limit to first 15 parameters to avoid too many pages)
+              const paramsToShow = sortedParams.slice(0, 15);
+              paramsToShow.forEach((param: any, paramIndex: number) => {
+                // Check if we need a new page
+                if (yPosition > pageHeight - 20) {
+                  doc.addPage();
+                  yPosition = 20;
+
+                  doc.setFillColor(52, 152, 219);
+                  doc.rect(0, 0, pageWidth, 20, 'F');
+                  doc.setTextColor(255, 255, 255);
+                  doc.setFontSize(12);
+                  doc.setFont('helvetica', 'bold');
+                  doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+                  doc.setTextColor(44, 62, 80);
+                  yPosition = 40;
+                }
+
+                // Alternate row background
+                if (paramIndex % 2 === 0) {
+                  doc.setFillColor(248, 249, 250);
+                  doc.rect(margin, yPosition - 5, pageWidth - 2 * margin, 8, 'F');
+                }
+
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(60, 60, 60);
+
+                xPos = margin + 2;
+                // Parameter name (truncate if too long)
+                const paramName = param.Parameter.length > 30 ? param.Parameter.substring(0, 27) + '...' : param.Parameter;
+                doc.text(paramName, xPos, yPosition);
+                xPos += colWidths[0];
+
+                // Low %
+                doc.text(param['<Low%'].toFixed(2), xPos, yPosition);
+                xPos += colWidths[1];
+
+                // Target % with color coding
+                const targetPercent = param['Target%'];
+                if (targetPercent >= 80) {
+                  doc.setTextColor(34, 139, 34); // Green
+                } else if (targetPercent >= 60) {
+                  doc.setTextColor(255, 140, 0); // Orange
+                } else {
+                  doc.setTextColor(220, 20, 60); // Red
+                }
+                doc.text(targetPercent.toFixed(2), xPos, yPosition);
+                xPos += colWidths[2];
+
+                // High %
+                doc.setTextColor(60, 60, 60);
+                doc.text(param['>High%'].toFixed(2), xPos, yPosition);
+
+                yPosition += 8;
+              });
+
+              if (sortedParams.length > 15) {
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'italic');
+                doc.setTextColor(100, 100, 100);
+                doc.text(`... and ${sortedParams.length - 15} more parameters`, margin, yPosition);
+                yPosition += 8;
+              }
+            }
+            yPosition += 10;
+          }
+
+          // Quality Section
+          const qualityData = item.backendData?.Qulity as any;
+          if (qualityData && (qualityData['45_'] || qualityData['Blaine_'] || qualityData['90_'])) {
+            // Check if we need a new page
+            if (yPosition > pageHeight - 80) {
+              doc.addPage();
+              yPosition = 20;
+
+              doc.setFillColor(52, 152, 219);
+              doc.rect(0, 0, pageWidth, 20, 'F');
+              doc.setTextColor(255, 255, 255);
+              doc.setFontSize(12);
+              doc.setFont('helvetica', 'bold');
+              doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+              doc.setTextColor(44, 62, 80);
+              yPosition = 40;
+            }
+
+            // Quality section title
+            doc.setFillColor(236, 240, 241);
+            doc.rect(margin - 5, yPosition - 8, pageWidth - 2 * margin + 10, 12, 'F');
+
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(44, 62, 80);
+            doc.text('Quality Analysis', margin, yPosition);
+            yPosition += 15;
+
+            // 45 Micron
+            if (qualityData['45_']) {
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(52, 152, 219);
+              doc.text('45 Micron:', margin + 5, yPosition);
+              yPosition += 8;
+
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(60, 60, 60);
+
+              Object.entries(qualityData['45_'])
+                .filter(([key]) => !isNaN(Number(key)))
+                .forEach(([key, value]) => {
+                  if (yPosition > pageHeight - 20) {
+                    doc.addPage();
+                    yPosition = 40;
+                  }
+                  const text = String(value ?? '');
+                  const splitText = doc.splitTextToSize(`• ${text}`, pageWidth - 2 * margin - 10);
+                  doc.text(splitText, margin + 10, yPosition);
+                  yPosition += splitText.length * 5;
+                });
+              yPosition += 5;
+            }
+
+            // 90 Micron or Blaine
+            const micronData = qualityData['90_'] || qualityData['Blaine_'];
+            const micronLabel = qualityData['90_'] ? '90 Micron' : 'Blaine';
+            if (micronData) {
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(52, 152, 219);
+              doc.text(`${micronLabel}:`, margin + 5, yPosition);
+              yPosition += 8;
+
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(60, 60, 60);
+
+              Object.entries(micronData)
+                .filter(([key]) => !isNaN(Number(key)))
+                .forEach(([key, value]) => {
+                  if (yPosition > pageHeight - 20) {
+                    doc.addPage();
+                    yPosition = 40;
+                  }
+                  const text = String(value ?? '');
+                  const splitText = doc.splitTextToSize(`• ${text}`, pageWidth - 2 * margin - 10);
+                  doc.text(splitText, margin + 10, yPosition);
+                  yPosition += splitText.length * 5;
+                });
+              yPosition += 5;
+            }
+            yPosition += 10;
+          }
+
+          // Stoppages/Maintenance Section
+          const tphData = item.backendData?.TPH;
+          const hasStoppageData = tphData && (
+            (Array.isArray(tphData.RP1_maintance) && tphData.RP1_maintance.length > 0) ||
+            (Array.isArray(tphData.RP2_maintance) && tphData.RP2_maintance.length > 0) ||
+            (Array.isArray(tphData.klin_maintance) && tphData.klin_maintance.length > 0)
+          );
+
+          if (hasStoppageData) {
+            // Check if we need a new page
+            if (yPosition > pageHeight - 80) {
+              doc.addPage();
+              yPosition = 20;
+
+              doc.setFillColor(52, 152, 219);
+              doc.rect(0, 0, pageWidth, 20, 'F');
+              doc.setTextColor(255, 255, 255);
+              doc.setFontSize(12);
+              doc.setFont('helvetica', 'bold');
+              doc.text('JSW Cement RCA Tool Report - Continued', pageWidth / 2, 12, { align: 'center' });
+              doc.setTextColor(44, 62, 80);
+              yPosition = 40;
+            }
+
+            // Stoppages section title
+            doc.setFillColor(255, 243, 205); // Yellow background
+            doc.rect(margin - 5, yPosition - 8, pageWidth - 2 * margin + 10, 12, 'F');
+
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(44, 62, 80);
+            doc.text('Stoppages / Maintenance Events', margin, yPosition);
+            yPosition += 15;
+
+            // Helper function to add stoppage table
+            const addStoppageTable = (stoppageData: any[], label: string) => {
+              if (!stoppageData || stoppageData.length === 0) return;
+
+              if (yPosition > pageHeight - 60) {
+                doc.addPage();
+                yPosition = 40;
+              }
+
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(52, 152, 219);
+              doc.text(label, margin + 5, yPosition);
+              yPosition += 10;
+
+              // Show first 5 stoppages
+              const stoppagesToShow = stoppageData.slice(0, 5);
+              stoppagesToShow.forEach((stoppage: any, idx: number) => {
+                if (yPosition > pageHeight - 30) {
+                  doc.addPage();
+                  yPosition = 40;
+                }
+
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(60, 60, 60);
+
+                // Get reason - clean up and format professionally
+                let reason = stoppage['Reason of Stoppage'] || stoppage.reason || '';
+                const otherReason = stoppage['Other Reason of stoppage'];
+
+                // If main reason is "#Other" or similar, use the other reason as primary
+                if (reason.toLowerCase().includes('#other') || reason.toLowerCase() === 'other') {
+                  if (otherReason && typeof otherReason === 'string' && otherReason.trim().length > 0) {
+                    // Use the other reason as the main reason, capitalize first letter
+                    reason = otherReason.trim();
+                    reason = reason.charAt(0).toUpperCase() + reason.slice(1);
+                  } else {
+                    reason = 'Unspecified Stoppage';
+                  }
+                } else if (otherReason && typeof otherReason === 'string' && otherReason.trim().length > 0) {
+                  // If we have both, combine them professionally
+                  reason = `${reason} (${otherReason.trim()})`;
+                }
+
+                // Clean up any remaining # symbols and extra spaces
+                reason = reason.replace(/#/g, '').replace(/\s+/g, ' ').trim();
+                if (!reason) {
+                  reason = 'Unspecified Stoppage';
+                }
+
+                // Get duration - use Calculated Duration (H:M) which is the correct field
+                const duration = stoppage['Calculated Duration (H:M)'] || stoppage['Time (in min)'] || stoppage['Duration (min)'] || '';
+
+                // Get start and end times
+                const startTime = stoppage['Start Date Time'] || stoppage['Start Time'] || '';
+                const endTime = stoppage['End Date Time'] || '';
+
+                // Get category and department
+                const category = stoppage['Stoppage Category'] || '';
+                const department = stoppage['Department'] || '';
+
+                // Build stoppage text with available information
+                let stoppageText = reason;
+                if (duration) {
+                  stoppageText += ` | Duration: ${duration}`;
+                }
+                if (category) {
+                  stoppageText += ` | Category: ${category}`;
+                }
+                if (startTime) {
+                  stoppageText += ` | Start: ${formatTimeIST(startTime)}`;
+                }
+
+                // Draw blue circle bullet
+                doc.setFillColor(52, 152, 219); // Blue color
+                doc.circle(margin + 12, yPosition - 2, 2.5, 'F');
+
+                // Draw text after the bullet
+                const splitText = doc.splitTextToSize(stoppageText, pageWidth - 2 * margin - 20);
+                doc.text(splitText, margin + 20, yPosition);
+                yPosition += splitText.length * 5 + 4;
+              });
+
+              if (stoppageData.length > 5) {
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'italic');
+                doc.setTextColor(100, 100, 100);
+                doc.text(`... and ${stoppageData.length - 5} more stoppages`, margin + 10, yPosition);
+                yPosition += 8;
+              }
+              yPosition += 5;
+            };
+
+            // Add RP1 stoppages
+            if (Array.isArray(tphData.RP1_maintance) && tphData.RP1_maintance.length > 0) {
+              addStoppageTable(tphData.RP1_maintance, 'RP1 Stoppages:');
+            }
+
+            // Add RP2 stoppages
+            if (Array.isArray(tphData.RP2_maintance) && tphData.RP2_maintance.length > 0) {
+              addStoppageTable(tphData.RP2_maintance, 'RP2 Stoppages:');
+            }
+
+            // Add Kiln stoppages
+            if (Array.isArray(tphData.klin_maintance) && tphData.klin_maintance.length > 0) {
+              addStoppageTable(tphData.klin_maintance, 'Kiln Stoppages:');
+            }
+
+            yPosition += 10;
+          }
+
           yPosition += 15;
         });
       });
-      
+
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
       const filename = `JSW_Cement_RCA_Report_${timestamp}.pdf`;
-      
+
       // Save the PDF
       doc.save(filename);
       
@@ -2930,7 +3689,6 @@ const getHighPowerSubsections = (millType: string) => {
                                           className="relative overflow-hidden transition-all duration-300 ease-in-out bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-5 py-1.5 shadow-lg hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 group text-sm min-w-[100px] animate-pulse ring-2 ring-green-300 ring-offset-1"
                                           onClick={e => {
                                             e.stopPropagation();
-                                            // Save all pending inputs to DB, then refresh
                                             saveAllPendingInputsToDB(item?._id, item);
                                             console.log('Update clicked - saving pending inputs to DB');
                                           }}
@@ -2951,20 +3709,20 @@ const getHighPowerSubsections = (millType: string) => {
                                         className="relative overflow-hidden transition-all duration-300 ease-in-out bg-blue-50 hover:bg-blue-100 text-blue-800 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
                                         onClick={e => {
                                           e.stopPropagation();
-                                          setParametersPopup({ isOpen: true, dataIndex: index });
+                                            setParametersPopup({ isOpen: true, dataIndex: index });
                                         }}
                                         disabled={!item?.processParams || item?.processParams?.length === 0}
                                         title={item?.processParams && item?.processParams?.length > 0 ? "View process parameters" : "No process parameters available"}
                                       >
                                         <span className="inline-flex items-center gap-1">
-                                          Parameters
+                                        Parameters
                                         </span>
                                       </Button>
                                       <Button
                                         className="relative overflow-hidden transition-all duration-300 ease-in-out bg-yellow-50 hover:bg-yellow-100 text-yellow-800 focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 active:scale-95 rounded-xl px-2 py-0.5 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group text-xs font-medium"
                                         onClick={e => {
                                           e.stopPropagation();
-                                          void openMaintenancePopup(item?.backendData, item?.sectionName);
+                                            void openMaintenancePopup(item?.backendData, item?.sectionName);
                                         }}
                                         disabled={!hasMaintenanceDataInPayload(item?.backendData)}
                                         title="View maintenance events"
@@ -2974,7 +3732,7 @@ const getHighPowerSubsections = (millType: string) => {
                                         </span>
                                         <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                                       </Button>
-                                    </div>
+                                      </div>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
@@ -3142,51 +3900,74 @@ const getHighPowerSubsections = (millType: string) => {
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Both RP Down</h4>
-                                            <button
-                                              onClick={() => {
-                                                const tphData = item?.backendData?.TPH;
-                                                const bothRpDown = tphData?.both_rp_down;
-                                                const rampupData = bothRpDown?.rampup;
-                                                
-                                                console.log('Both RP Down button clicked - TPH data:', tphData);
-                                                console.log('Both RP Down button clicked - both_rp_down object:', bothRpDown);
-                                                console.log('Both RP Down button clicked - rampup data:', rampupData);
-                                                
-                                                // For Both RP Down, prioritize rampup array for table display
-                                                const data = rampupData || (bothRpDown?.rampup) || [];
-                                                console.log('Both RP Down button clicked - final data:', data);
-                                                console.log('Both RP Down button clicked - data type:', typeof data);
-                                                console.log('Both RP Down button clicked - is array:', Array.isArray(data));
-                                                
-                                                openPopup(data, "Both RP Down", {...item?.backendData, sectionName: item?.sectionName});
-                                              }}
-                                              className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
-                                                hasTrendData(item.backendData, "Both RP Down")
-                                                  ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
-                                                  : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
-                                              }`}
-                                              title={hasTrendData(item.backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
-                                              disabled={!hasTrendData(item.backendData, "Both RP Down")}
-                                            >
-                                              <svg
-                                                className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
-                                                  hasTrendData(item.backendData, "Both RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
-                                                }`}
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
+                                            <div className="flex items-center gap-2">
+                                              {/* Plus Icon Button */}
+                                              <button
+                                                onClick={() => openPlusPopup(
+                                                  "Both RP Down",
+                                                  item?.sectionName || "Mill",
+                                                  "TPH.both_rp_down",
+                                                  item?._id || "",
+                                                  item?.insightID || "",
+                                                  item?.applicationType || "Workbench",
+                                                  item?.backendData || {}
+                                                )}
+                                                className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                title="Add user note"
                                               >
-                                                <path
-                                                  strokeLinecap="round"
-                                                  strokeLinejoin="round"
-                                                  strokeWidth={2}
-                                                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                <Plus
+                                                  className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
                                                 />
-                                              </svg>
-                                              {hasTrendData(item.backendData, "Both RP Down") && (
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                                              )}
-                                            </button>
+                                              </button>
+
+                                              {/* Chart Icon Button */}
+                                              <button
+                                                onClick={() => {
+                                                  const tphData = item?.backendData?.TPH;
+                                                  const bothRpDown = tphData?.both_rp_down;
+                                                  const rampupData = bothRpDown?.rampup;
+
+                                                  console.log('Both RP Down button clicked - TPH data:', tphData);
+                                                  console.log('Both RP Down button clicked - both_rp_down object:', bothRpDown);
+                                                  console.log('Both RP Down button clicked - rampup data:', rampupData);
+
+                                                  // For Both RP Down, prioritize rampup array for table display
+                                                  const data = rampupData || (bothRpDown?.rampup) || [];
+                                                  console.log('Both RP Down button clicked - final data:', data);
+                                                  console.log('Both RP Down button clicked - data type:', typeof data);
+                                                  console.log('Both RP Down button clicked - is array:', Array.isArray(data));
+
+                                                  openPopup(data, "Both RP Down", {...item?.backendData, sectionName: item?.sectionName});
+                                                }}
+                                                className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
+                                                  hasTrendData(item.backendData, "Both RP Down")
+                                                    ? "hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                                    : "text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                                }`}
+                                                title={hasTrendData(item.backendData, "Both RP Down") ? "View trend chart" : "No trend data available"}
+                                                disabled={!hasTrendData(item.backendData, "Both RP Down")}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-3 relative z-10 ${
+                                                    hasTrendData(item.backendData, "Both RP Down") ? 'text-blue-700 group-hover:text-blue-800' : 'text-gray-400'
+                                                  }`}
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                                  />
+                                                </svg>
+                                                {hasTrendData(item.backendData, "Both RP Down") && (
+                                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                              </button>
+                                            </div>
                                           </div>
                                           <div className="space-y-2">
                                             {Array.isArray(item.backendData.TPH.both_rp_down) ? 
@@ -3419,15 +4200,67 @@ const getHighPowerSubsections = (millType: string) => {
                                     <span className="text-gray-900 font-bold text-base">Idle Running</span>
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
-                                    {item?.backendData?.idle_running?.cause ? (
-                                      <p className="text-gray-700 text-base">
-                                        {highlightNumbers(item.backendData.idle_running.cause)}
-                                      </p>
-                                    ) : (
-                                      <p className="text-gray-700 text-base">
-                                        No idle running data available.
-                                      </p>
-                                    )}
+                                    <div className="bg-gray-50 rounded-lg p-4">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <h4 className="font-semibold text-gray-900 text-base">Idle Running</h4>
+                                        <div className="flex items-center gap-2">
+                                          {/* Plus Icon Button */}
+                                          <button
+                                            onClick={() => openPlusPopup(
+                                              "Idle Running",
+                                              item?.sectionName || "Mill",
+                                              "idle_running",
+                                              item?._id || "",
+                                              item?.insightID || "",
+                                              item?.applicationType || "Workbench",
+                                              item?.backendData || {}
+                                            )}
+                                            className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                            title="Add user note"
+                                          >
+                                            <Plus
+                                              className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
+                                            />
+                                            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                          </button>
+
+                                          {/* Chart Icon Button - Always disabled for Idle Running */}
+                                          <button
+                                            className="relative overflow-hidden transition-all duration-300 ease-in-out text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
+                                            title="No chart available for Idle Running"
+                                            disabled={true}
+                                          >
+                                            <svg
+                                              className="w-3 h-3 text-gray-400"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                              />
+                                            </svg>
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {item?.backendData?.idle_running?.cause ? (
+                                          <div className="flex items-start gap-2">
+                                            <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                            <span className="text-base text-gray-600">
+                                              {highlightNumbers(item.backendData.idle_running.cause)}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <p className="text-gray-500 text-base">
+                                            No idle running data available.
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
                                   </AccordionContent>
                                 </AccordionItem>
 
@@ -3634,8 +4467,8 @@ const getHighPowerSubsections = (millType: string) => {
 
             {/* Content */}
             <div className="p-4">
-              {/* Check if this is a High Power section */}
-              {["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Kiln Main Drive 1", "Kiln Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(popupData.section) ? (
+              {/* Check if this is a High Power section (excluding Cooler Fan which has its own tabbed view) */}
+              {["SKS Fan", "Mill Auxiliaries", "Product Transportation", "RP1", "RP2", "Product Transportation MCC15", "PHF1", "PHF2", "Preheater Fan 1", "Preheater Fan 2", "Kiln Main Drive 1", "Kiln Main Drive 2", "Klin_main_drive_1", "Klin_main_drive_2"].includes(popupData.section) && !["Cooler Fan", "cooler_fan"].includes(popupData.section) ? (
                 // For High Power sections, show only trend analysis
                 <div className="bg-gray-50 rounded-lg p-4">
                   <h4 className="font-semibold text-gray-900 mb-3">Trend Analysis</h4>
@@ -3985,7 +4818,7 @@ const getHighPowerSubsections = (millType: string) => {
                             );
                           })()
                         )}
-                        
+
                         {/* Product Transportation MCC15 Trend Chart */}
                         {popupData.section === "Product Transportation MCC15" && shouldShowTrend(popupData.backendData, "Product Transportation MCC15") && (
                           <TrendChart
@@ -4013,6 +4846,134 @@ const getHighPowerSubsections = (millType: string) => {
                     )}
                   </div>
                 </div>
+              ) : ["Cooler Fan", "cooler_fan"].includes(popupData.section) ? (
+                // For Cooler Fan section, show Table Data and Trend Analysis tabs
+                <Tabs defaultValue="table" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="table">Table Data</TabsTrigger>
+                    <TabsTrigger value="trend">Trend Analysis</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="table" className="mt-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      {(() => {
+                        // Extract events from Cooler Fan data
+                        const coolerFanData = popupData.backendData?.High_Power?.cooler_fan;
+                        const events = coolerFanData?.events || [];
+
+                        if (events.length > 0) {
+                          return (
+                            <div className="overflow-x-auto max-h-[75vh]">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="w-[180px]">Start Time</TableHead>
+                                    <TableHead className="w-[180px]">End Time</TableHead>
+                                    <TableHead className="w-[120px]">Duration</TableHead>
+                                    <TableHead className="w-[120px]">Amplitude</TableHead>
+                                    <TableHead className="w-[120px]">Total Feed</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {events.map((event: any, i: number) => (
+                                    <TableRow key={i}>
+                                      <TableCell>{formatTime(event.start_time)}</TableCell>
+                                      <TableCell>{formatTime(event.end_time)}</TableCell>
+                                      <TableCell>{formatDurationHM(event.duration)}</TableCell>
+                                      <TableCell>{formatNumber(event.amplitude)}</TableCell>
+                                      <TableCell>{formatNumber(event.total_feed)}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="text-center py-8">
+                              <p className="text-gray-500">No SAT drop events data available</p>
+                            </div>
+                          );
+                        }
+                      })()}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="trend" className="mt-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3">Trend Analysis</h4>
+                      <div className="bg-white rounded p-4 border">
+                        <p className="text-gray-600 mb-4">
+                          Kiln Feed and Secondary Air Temperature trend analysis for the Cooler Fan section.
+                        </p>
+
+                        {(() => {
+                          const coolerFanData = popupData.backendData?.High_Power?.cooler_fan;
+                          const hasData = coolerFanData?.Device;
+
+                          if (hasData) {
+                            // Get device ID for Kiln Feed (D63)
+                            let kilnFeedDeviceId = "ABBBHPH_A1";
+                            if (coolerFanData?.Device && typeof coolerFanData.Device === 'object') {
+                              Object.entries(coolerFanData.Device).forEach(([deviceId, deviceName]) => {
+                                if (deviceName === 'TPH' || deviceName === 'Kiln Feed') {
+                                  kilnFeedDeviceId = deviceId;
+                                }
+                              });
+                            }
+
+                            // Device map for multi-device support
+                            // D63 (Kiln Feed) -> ABBBHPH_A1
+                            // D106 (Secondary Air Temperature) -> ABBKLN_A1
+                            const deviceMap: Record<string, string> = {
+                              "D63": kilnFeedDeviceId,
+                              "D106": "ABBKLN_A1"
+                            };
+
+                            return (
+                              <TrendChart
+                                deviceId={kilnFeedDeviceId}
+                                sensorList={["D63", "D106"]}
+                                startTime={popupData.backendData?.query_time?.[0] || "2025-07-06 00:00:00"}
+                                endTime={popupData.backendData?.query_time?.[1] || "2025-07-06 23:59:59"}
+                                title="Cooler Fan Trend"
+                                legendNames={{ "D63": "Kiln Feed", "D106": "Secondary Air Temperature" }}
+                                deviceMap={deviceMap}
+                                isDualAxis={true}
+                                events={(() => {
+                                  const events = coolerFanData?.events || [];
+                                  if (events.length > 0) {
+                                    return events.map((event: any) => ({
+                                      startTime: event.start_time,
+                                      endTime: event.end_time,
+                                      color: "#ED1C24",
+                                      type: "SAT Drop"
+                                    }));
+                                  }
+                                  return undefined;
+                                })()}
+                              />
+                            );
+                          } else {
+                            return (
+                              <div className="text-center py-8">
+                                <div className="text-gray-500 mb-2">
+                                  <svg className="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                  </svg>
+                                  <p className="text-lg font-medium text-gray-600">No Trend Data Available</p>
+                                  <p className="text-sm text-gray-500 mt-1">
+                                    Sensor data is not available for this section.
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          }
+                        })()}
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               ) : (
                 // For TPH sections, show different tabs based on mill name from data
                 <Tabs defaultValue={(() => {
@@ -4786,6 +5747,7 @@ const getHighPowerSubsections = (millType: string) => {
                       {showRangeColumn && (
                         <TableHead className="px-4 py-2 text-center border-b font-semibold">Range (Min - Max)</TableHead>
                       )}
+                      <TableHead className="px-4 py-2 text-center border-b font-semibold w-16">Graph</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -4799,37 +5761,84 @@ const getHighPowerSubsections = (millType: string) => {
                       if (!processParams || processParams.length === 0) {
                         return (
                           <TableRow>
-                            <TableCell colSpan={showRangeColumn ? 5 : 4} className="px-4 py-8 text-center text-gray-500">
+                            <TableCell colSpan={showRangeColumn ? 6 : 5} className="px-4 py-8 text-center text-gray-500">
                               No process parameters data available
                             </TableCell>
                           </TableRow>
                         );
                       }
 
-                      // Sort by Target% based on sort order
+                      // Get query_time from backend data for graph fetching
+                      const queryTime = selectedData?.backendData?.query_time;
+
+                      // Log all process params for debugging sensor mappings
+                      console.log('=== Process Params Debug ===');
+                      console.log('Section Name:', sectionName);
+                      console.log('All Process Params:', processParams);
+                      console.log('Process Params details:');
+                      processParams.forEach((param: any, idx: number) => {
+                        console.log(`  [${idx}] Parameter: "${param.Parameter}"`);
+                        console.log(`       Keys: ${Object.keys(param).join(', ')}`);
+                        console.log(`       sensor_id: ${param.sensor_id || 'N/A'} | device_id: ${param.device_id || 'N/A'}`);
+                        console.log(`       sensorId: ${param.sensorId || 'N/A'} | deviceId: ${param.deviceId || 'N/A'}`);
+                      });
+
+                      // Show all parameters (don't filter by device_id/sensor_id)
+                      // Graph button will only be enabled for those with sensor info
                       const sortedParams = [...processParams].sort((a, b) => {
                         if (paramsSortOrder === 'asc') {
-                          return a['Target%'] - b['Target%'];
+                          return (a['Target%'] || 0) - (b['Target%'] || 0);
                         } else {
-                          return b['Target%'] - a['Target%'];
+                          return (b['Target%'] || 0) - (a['Target%'] || 0);
                         }
                       });
 
+                      if (sortedParams.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={showRangeColumn ? 6 : 5} className="px-4 py-8 text-center text-gray-500">
+                              No process parameters data available
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
                       return sortedParams.map((param, index) => {
                         const limits = parameterLimits[param.Parameter];
+                        // Use the module-level helper function to check for graph data availability
+                        // This checks both API-provided device_id and known sensor-device overrides
+                        const hasGraphData = hasGraphDataForParam(param);
+                        // Debug log for graph data check
+                        console.log(`Graph check for "${param.Parameter}": sensor_id=${param.sensor_id}, device_id=${param.device_id}, hasGraphData=${hasGraphData}`);
+                        const lowValue = param['<Low%'] ?? param['Low%'] ?? 0;
+                        const targetValue = param['Target%'] ?? 0;
+                        const highValue = param['>High%'] ?? param['High%'] ?? 0;
                         return (
                           <TableRow key={index} className={index % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
-                            <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter}</TableCell>
-                            <TableCell className="px-4 py-2 border-b text-center">{param['<Low%'].toFixed(2)}</TableCell>
-                            <TableCell className={`px-4 py-2 border-b text-center ${getTargetBgColor(param['Target%'])}`}>
-                              {param['Target%'].toFixed(2)}
+                            <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter || 'N/A'}</TableCell>
+                            <TableCell className="px-4 py-2 border-b text-center">{typeof lowValue === 'number' ? lowValue.toFixed(2) : lowValue}</TableCell>
+                            <TableCell className={`px-4 py-2 border-b text-center ${getTargetBgColor(targetValue)}`}>
+                              {typeof targetValue === 'number' ? targetValue.toFixed(2) : targetValue}
                             </TableCell>
-                            <TableCell className="px-4 py-2 border-b text-center">{param['>High%'].toFixed(2)}</TableCell>
+                            <TableCell className="px-4 py-2 border-b text-center">{typeof highValue === 'number' ? highValue.toFixed(2) : highValue}</TableCell>
                             {showRangeColumn && (
                               <TableCell className="px-4 py-2 border-b text-center text-gray-600">
                                 {limits ? `${limits.min.toFixed(2)} - ${limits.max.toFixed(2)}` : 'N/A'}
                               </TableCell>
                             )}
+                            <TableCell className="px-4 py-2 border-b text-center">
+                              {hasGraphData ? (
+                                <button
+                                  onClick={() => openParamGraphPopup(param, sectionName, queryTime, processParams)}
+                                  className="p-1.5 hover:bg-blue-100 rounded-full transition-colors text-blue-600 hover:text-blue-800"
+                                  title={`View graph for ${param.Parameter}`}
+                                >
+                                  <LineChart className="w-4 h-4" />
+                                </button>
+                              ) : (
+                                <span className="text-gray-400" title="No sensor data available">-</span>
+                              )}
+                            </TableCell>
                           </TableRow>
                         );
                       });
@@ -4960,6 +5969,108 @@ const getHighPowerSubsections = (millType: string) => {
               >
                 Save
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Parameter Graph Popup Modal */}
+      {paramGraphPopup.isOpen && paramGraphPopup.parameter && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeParamGraphPopup();
+          }}
+        >
+          <div className="bg-white w-[85%] max-w-5xl rounded-lg shadow-lg max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <LineChart className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {paramGraphPopup.parameter.Parameter}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {paramGraphPopup.sectionName} - Sensor: {paramGraphPopup.parameter.sensor_id}
+                  </p>
+                </div>
+              </div>
+              {/* High, Low, Target values in the middle */}
+              <div className="flex items-center gap-4">
+                <div className="text-center px-3 py-1 bg-gray-100 rounded">
+                  <p className="text-xs text-gray-500">Low %</p>
+                  <p className="font-semibold text-sm">{paramGraphPopup.parameter['<Low%'].toFixed(2)}%</p>
+                </div>
+                <div className={`text-center px-3 py-1 rounded ${getTargetBgColor(paramGraphPopup.parameter['Target%'])}`}>
+                  <p className="text-xs text-gray-500">Target %</p>
+                  <p className="font-semibold text-sm">{paramGraphPopup.parameter['Target%'].toFixed(2)}%</p>
+                </div>
+                <div className="text-center px-3 py-1 bg-gray-100 rounded">
+                  <p className="text-xs text-gray-500">High %</p>
+                  <p className="font-semibold text-sm">{paramGraphPopup.parameter['>High%'].toFixed(2)}%</p>
+                </div>
+              </div>
+              <button
+                onClick={closeParamGraphPopup}
+                className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6">
+              {paramGraphPopup.loading ? (
+                <div className="flex items-center justify-center h-80">
+                  <div className="text-center">
+                    <LumaSpin />
+                    <p className="mt-4 text-gray-500">Loading graph data...</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-80">
+                  <HighchartsLineChart
+                    data={paramGraphPopup.graphData}
+                    lines={paramGraphPopup.graphData.length > 0 ? [{
+                      key: paramGraphPopup.parameter.sensor_id || '',
+                      name: paramGraphPopup.parameter.Parameter,
+                      color: '#3263fc'
+                    }] : []}
+                    title={paramGraphPopup.parameter.Parameter}
+                    usl={(() => {
+                      const limits = getParameterLimits(paramGraphPopup.sectionName);
+                      return limits[paramGraphPopup.parameter?.Parameter || '']?.max;
+                    })()}
+                    lsl={(() => {
+                      const limits = getParameterLimits(paramGraphPopup.sectionName);
+                      return limits[paramGraphPopup.parameter?.Parameter || '']?.min;
+                    })()}
+                  />
+                </div>
+              )}
+              {/* Display LSL/USL info */}
+              <div className="mt-4 flex justify-center gap-6 text-sm">
+                <div className="bg-red-50 px-4 py-2 rounded-lg border border-red-200">
+                  <span className="text-red-700 font-medium">LSL (Min): </span>
+                  <span className="font-semibold text-red-800">
+                    {(() => {
+                      const limits = getParameterLimits(paramGraphPopup.sectionName);
+                      const paramLimits = limits[paramGraphPopup.parameter?.Parameter || ''];
+                      return paramLimits ? paramLimits.min.toFixed(2) : 'N/A';
+                    })()}
+                  </span>
+                </div>
+                <div className="bg-red-50 px-4 py-2 rounded-lg border border-red-200">
+                  <span className="text-red-700 font-medium">USL (Max): </span>
+                  <span className="font-semibold text-red-800">
+                    {(() => {
+                      const limits = getParameterLimits(paramGraphPopup.sectionName);
+                      const paramLimits = limits[paramGraphPopup.parameter?.Parameter || ''];
+                      return paramLimits ? paramLimits.max.toFixed(2) : 'N/A';
+                    })()}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

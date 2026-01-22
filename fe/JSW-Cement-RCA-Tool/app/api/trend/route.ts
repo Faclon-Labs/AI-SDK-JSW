@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Force this module to be server-side only
+export const runtime = 'nodejs';
+
 // Configuration for the backend connection
 const BACKEND_CONFIG = {
   userId: '66792886ef26fb850db806c5', // Hardcoded user ID
@@ -47,17 +50,8 @@ export async function POST(request: NextRequest) {
 // Real data fetcher from backend
 async function fetchRealData(deviceId: string, sensorList: string[], startTime: string, endTime: string) {
   try {
-    // Import DataAccess dynamically
-    const { DataAccess } = await import('../../../../../connector-userid-ts/dist/index.js');
-
-    // Initialize DataAccess with backend configuration
-    const dataAccess = new DataAccess({
-      userId: BACKEND_CONFIG.userId,
-      dataUrl: BACKEND_CONFIG.dataUrl,
-      dsUrl: BACKEND_CONFIG.dataUrl,
-      onPrem: BACKEND_CONFIG.onPrem,
-      tz: BACKEND_CONFIG.tz
-    });
+    // Import the server-only wrapper module
+    const { queryData } = await import('../../../lib/dataAccess.server');
 
     // Convert IST string times to Unix timestamps properly
     // The query_time values are in IST format (YYYY-MM-DD HH:mm:ss)
@@ -79,14 +73,23 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
       endTime: endTime + ' (converted to Unix: ' + endTimeUnix + ')'
     });
 
-    // Call the real backend dataQuery function with Unix timestamps
+    // Call the real backend dataQuery function with Unix timestamps via the server wrapper
     // This avoids timezone conversion issues by passing already-converted timestamps
-    const result = await dataAccess.dataQuery({
-      deviceId,
-      sensorList,
-      startTime: startTimeUnix,  // Pass Unix timestamp
-      endTime: endTimeUnix       // Pass Unix timestamp
-    });
+    const result = await queryData(
+      {
+        userId: BACKEND_CONFIG.userId,
+        dataUrl: BACKEND_CONFIG.dataUrl,
+        dsUrl: BACKEND_CONFIG.dataUrl,
+        onPrem: BACKEND_CONFIG.onPrem,
+        tz: BACKEND_CONFIG.tz
+      },
+      {
+        deviceId,
+        sensorList,
+        startTime: startTimeUnix,  // Pass Unix timestamp
+        endTime: endTimeUnix       // Pass Unix timestamp
+      }
+    );
 
     console.log('Real backend response type:', typeof result);
     console.log('Real backend response is array:', Array.isArray(result));
@@ -132,9 +135,8 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
 
     // Check if result is empty due to connector error
     if (!dataArray || (Array.isArray(dataArray) && dataArray.length === 0)) {
-      console.warn('Backend returned empty result, falling back to mock data');
-      console.warn('This may indicate a connection issue or no data for the specified time range');
-      return generateMockData(deviceId, sensorList, startTime, endTime);
+      console.warn('Backend returned empty result - no data available for the specified time range');
+      return [];
     }
 
     console.log('SUCCESS: Using REAL backend data (not mock)');
@@ -201,75 +203,7 @@ async function fetchRealData(deviceId: string, sensorList: string[], startTime: 
     return result_data || [];
   } catch (error) {
     console.error('Error fetching real data:', error);
-    
-    // Fallback to mock data if real data fails
-    console.log('Falling back to mock data due to error');
-    return generateMockData(deviceId, sensorList, startTime, endTime);
+    // Do not fall back to mock data - throw error so UI knows data is not available
+    throw error;
   }
 }
-
-// Mock data generator (fallback) - generates realistic values based on sensor type
-function generateMockData(deviceId: string, sensorList: string[], startTime: string, endTime: string) {
-  // Convert IST string times to Unix timestamps for mock data generation
-  function convertISTStringToUnix(timeStr: string): number {
-    const isoTimeStr = timeStr.replace(' ', 'T') + '+05:30';
-    return new Date(isoTimeStr).getTime();
-  }
-
-  const start = convertISTStringToUnix(startTime);
-  const end = convertISTStringToUnix(endTime);
-  const interval = (end - start) / 100;
-
-  // Define realistic base values and ranges for different sensor types
-  // TPH sensors (D49, D5) typically have values around 400-500
-  // Feed rate sensors (D63) typically have values around 300-400
-  // Fan speed sensors (D18, D19, D104, D209) typically have values around 50-100
-  // RPM sensors (D16) typically have values around 2-5
-  const getSensorConfig = (sensor: string): { base: number; variance: number; noise: number } => {
-    // TPH/Feed rate sensors - high values around 400-500
-    if (['D49', 'D5', 'D26'].includes(sensor)) {
-      return { base: 450, variance: 50, noise: 15 };
-    }
-    // Kiln feed rate sensor
-    if (sensor === 'D63') {
-      return { base: 350, variance: 40, noise: 10 };
-    }
-    // Fan speed sensors
-    if (['D18', 'D19', 'D104', 'D209'].includes(sensor)) {
-      return { base: 75, variance: 15, noise: 5 };
-    }
-    // RPM sensors
-    if (sensor === 'D16') {
-      return { base: 3.5, variance: 0.5, noise: 0.1 };
-    }
-    // Power consumption sensors
-    if (sensor.toLowerCase().includes('power') || sensor.toLowerCase().includes('spc')) {
-      return { base: 25, variance: 5, noise: 2 };
-    }
-    // Default values for unknown sensors
-    return { base: 100, variance: 20, noise: 5 };
-  };
-
-  const data = [];
-  for (let i = 0; i < 100; i++) {
-    const timestamp = start + (i * interval);
-    const dataPoint: any = {
-      time: new Date(timestamp).toISOString()
-    };
-
-    sensorList.forEach(sensor => {
-      const config = getSensorConfig(sensor);
-      // Generate realistic sensor data with proper base values
-      const trend = Math.sin(i * 0.1) * config.variance;
-      const noise = (Math.random() - 0.5) * config.noise;
-      dataPoint[sensor] = Math.round((config.base + trend + noise) * 100) / 100;
-    });
-
-    data.push(dataPoint);
-  }
-
-  console.log(`Generated ${data.length} MOCK data points for ${sensorList.length} sensors`);
-  console.log('Note: Using mock data - real backend data was not available');
-  console.log('Sensor configs used:', sensorList.map(s => ({ sensor: s, config: getSensorConfig(s) })));
-  return data;
-} 

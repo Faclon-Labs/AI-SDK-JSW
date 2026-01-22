@@ -30,17 +30,57 @@ const formatDuration = (value: unknown): string => {
 };
 
 const mapEventsToRows = (events: any[]) => {
-  return events.map((event) => ({
-    'Start Date Time': event?.idleFrom || event?.startTime || null,
-    'End Date Time': event?.idleTill || event?.endTime || null,
-    Duration: event?.triggerDuration ?? event?.triggerDurationWithOccurence ?? null,
-    'Calculated Duration (H:M)': formatDuration(event?.triggerDuration ?? event?.triggerDurationWithOccurence),
-    'Event Details': event?.message?.trim?.() || '',
-    Department: event?.metaDataObj?.DPT?.name || 'N/A',
-    'Stoppage Category': event?.metaDataObj?.remarkGroup?.remarkGroupName || 'N/A',
-    'Reason of Stoppage': event?.metaDataObj?.remark || 'N/A',
-    'Other Reason of stoppage': event?.metaDataObj?.otherRemark || '',
-  }));
+  return events.map((event) => {
+    // Try multiple possible locations for metadata
+    const metadata = event?.metaDataObj || event?.metadata || event?.metaData || {};
+
+    // Try to extract department from various possible locations
+    const department =
+      metadata?.DPT?.name ||
+      metadata?.department?.name ||
+      metadata?.department ||
+      event?.department ||
+      event?.DPT?.name ||
+      event?.DPT ||
+      'N/A';
+
+    // Try to extract stoppage category
+    const stoppageCategory =
+      metadata?.remarkGroup?.remarkGroupName ||
+      metadata?.remarkGroup?.name ||
+      metadata?.remarkGroup ||
+      metadata?.category ||
+      event?.remarkGroup?.remarkGroupName ||
+      event?.category ||
+      'N/A';
+
+    // Try to extract reason
+    const reason =
+      metadata?.remark ||
+      metadata?.reason ||
+      event?.remark ||
+      event?.reason ||
+      'N/A';
+
+    const otherReason =
+      metadata?.otherRemark ||
+      metadata?.otherReason ||
+      event?.otherRemark ||
+      event?.otherReason ||
+      '';
+
+    return {
+      'Start Date Time': event?.idleFrom || event?.startTime || null,
+      'End Date Time': event?.idleTill || event?.endTime || null,
+      Duration: event?.triggerDuration ?? event?.triggerDurationWithOccurence ?? null,
+      'Calculated Duration (H:M)': formatDuration(event?.triggerDuration ?? event?.triggerDurationWithOccurence),
+      'Event Details': event?.message?.trim?.() || '',
+      Department: department,
+      'Stoppage Category': stoppageCategory,
+      'Reason of Stoppage': reason,
+      'Other Reason of stoppage': otherReason,
+    };
+  });
 };
 
 export async function POST(request: NextRequest) {
@@ -108,6 +148,18 @@ export async function POST(request: NextRequest) {
 
     const data = await upstreamResponse.json();
     const eventsData = data?.data?.data || [];
+
+    // Debug: Log the first event to understand the structure
+    if (eventsData.length > 0) {
+      console.log('Sample stoppage event:', JSON.stringify(eventsData[0], null, 2));
+      console.log('Event keys:', Object.keys(eventsData[0]));
+      if (eventsData[0].metaDataObj) {
+        console.log('MetaDataObj keys:', Object.keys(eventsData[0].metaDataObj));
+      } else {
+        console.log('No metaDataObj found in event');
+      }
+    }
+
     const rows = mapEventsToRows(eventsData);
 
     return NextResponse.json({ success: true, data: rows });

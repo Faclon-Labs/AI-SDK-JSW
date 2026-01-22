@@ -7,6 +7,8 @@ export interface ProcessParam {
   '<Low%': number;
   'Target%': number;
   '>High%': number;
+  device_id?: string;
+  sensor_id?: string;
 }
 
 // Custom interface to match the actual payload structure
