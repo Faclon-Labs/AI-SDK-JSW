@@ -1403,9 +1403,22 @@ const getHighPowerSubsections = (millType: string) => {
     // Store sensor_id in const after the guard
     const sensorId = paramSensorId;
 
-    // Use module-level KNOWN_SENSOR_DEVICE_OVERRIDES to get the correct device ID
-    // Check if sensor_id is in the known overrides and use correct device ID
-    const deviceId = KNOWN_SENSOR_DEVICE_OVERRIDES[sensorId] || paramDeviceId;
+    // Section-specific device overrides for Cement Mill
+    // D2 and D3 in Cement Mill should always use ABBCMNTML_A1
+    const isCementMill = sectionName.toLowerCase().includes('cement');
+    const cementMillOverrides: Record<string, string> = {
+      'D2': 'ABBCMNTML_A1',  // Roller Press 2 Fixed Roller Power
+      'D3': 'ABBCMNTML_A1',  // Roller Press 2 Movable Roller Power
+    };
+
+    // For Cement Mill, use section-specific override first
+    // For other sections, use API value first, then fall back to global overrides
+    let deviceId: string | undefined;
+    if (isCementMill && cementMillOverrides[sensorId]) {
+      deviceId = cementMillOverrides[sensorId];
+    } else {
+      deviceId = paramDeviceId || KNOWN_SENSOR_DEVICE_OVERRIDES[sensorId];
+    }
 
     // If we still don't have a device_id, we can't fetch data
     if (!deviceId) {
@@ -5783,9 +5796,11 @@ const getHighPowerSubsections = (millType: string) => {
                         console.log(`       sensorId: ${param.sensorId || 'N/A'} | deviceId: ${param.deviceId || 'N/A'}`);
                       });
 
-                      // Show all parameters (don't filter by device_id/sensor_id)
-                      // Graph button will only be enabled for those with sensor info
-                      const sortedParams = [...processParams].sort((a, b) => {
+                      // Filter out parameters that don't have graph data (sensor_id/device_id)
+                      // Only show parameters that can display graphs
+                      const paramsWithGraphData = processParams.filter(param => hasGraphDataForParam(param));
+
+                      const sortedParams = [...paramsWithGraphData].sort((a, b) => {
                         if (paramsSortOrder === 'asc') {
                           return (a['Target%'] || 0) - (b['Target%'] || 0);
                         } else {
