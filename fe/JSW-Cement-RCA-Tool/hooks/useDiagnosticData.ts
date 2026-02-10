@@ -52,6 +52,10 @@ interface CustomInsightResult {
       query_time?: string[];
       idle_running?: {
         cause?: string;
+        idle?: {
+          [key: string]: string;
+        };
+        [key: string]: string | { [key: string]: string } | undefined;
       };
       Qulity?: {
         table?: any[];
@@ -200,6 +204,10 @@ interface DiagnosticData {
     };
     idle_running?: {
       cause?: string;
+      idle?: {
+        [key: string]: string;
+      };
+      [key: string]: string | { [key: string]: string } | undefined;
     };
     SPC?: {
       target?: number;

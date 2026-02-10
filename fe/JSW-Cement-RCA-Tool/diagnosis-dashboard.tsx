@@ -3682,20 +3682,22 @@ const getHighPowerSubsections = (millType: string) => {
                                 })()}
                               >
                                 <AccordionItem value="lower-output" className="border-b">
-                                  <AccordionTrigger className="px-4 py-3 hover:bg-gray-50 flex items-center justify-between">
+                                  <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
+                                    <AccordionTrigger className="flex-1 flex items-center justify-start p-0 hover:no-underline">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-gray-900 font-bold text-base">
+                                          {selectedSection === "Cement Mill 1" ? "TPH" : "Lower Output (TPH)"}
+                                        </span>
+                                        <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                          <path
+                                            fillRule="evenodd"
+                                            d="M14.707 12.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 14.586V3a1 1 0 112 0v11.586l2.293-2.293a1 1 0 011.414 0z"
+                                            clipRule="evenodd"
+                                          />
+                                        </svg>
+                                      </div>
+                                    </AccordionTrigger>
                                     <div className="flex items-center gap-2">
-                                      <span className="text-gray-900 font-bold text-base">
-                                        {selectedSection === "Cement Mill 1" ? "TPH" : "Lower Output (TPH)"}
-                                      </span>
-                                      <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                                        <path
-                                          fillRule="evenodd"
-                                          d="M14.707 12.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 14.586V3a1 1 0 112 0v11.586l2.293-2.293a1 1 0 011.414 0z"
-                                          clipRule="evenodd"
-                                        />
-                                      </svg>
-                                    </div>
-                                    <div className="ml-auto flex items-center gap-2">
                                       {/* Update Button - Only visible when there are pending inputs */}
                                       {pendingUserInputs[item?._id] && Object.keys(pendingUserInputs[item?._id] || {}).length > 0 && (
                                         <Button
@@ -3745,8 +3747,8 @@ const getHighPowerSubsections = (millType: string) => {
                                         </span>
                                         <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                                       </Button>
-                                      </div>
-                                  </AccordionTrigger>
+                                    </div>
+                                  </div>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
                                       {/* TPH Cause from backend */}
@@ -4214,59 +4216,23 @@ const getHighPowerSubsections = (millType: string) => {
                                   </AccordionTrigger>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="bg-gray-50 rounded-lg p-4">
-                                      <div className="flex items-center justify-between mb-3">
-                                        <h4 className="font-semibold text-gray-900 text-base">Idle Running</h4>
-                                        <div className="flex items-center gap-2">
-                                          {/* Plus Icon Button */}
-                                          <button
-                                            onClick={() => openPlusPopup(
-                                              "Idle Running",
-                                              item?.sectionName || "Mill",
-                                              "idle_running",
-                                              item?._id || "",
-                                              item?.insightID || "",
-                                              item?.applicationType || "Workbench",
-                                              item?.backendData || {}
-                                            )}
-                                            className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
-                                            title="Add user note"
-                                          >
-                                            <Plus
-                                              className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
-                                            />
-                                            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                                          </button>
-
-                                          {/* Chart Icon Button - Always disabled for Idle Running */}
-                                          <button
-                                            className="relative overflow-hidden transition-all duration-300 ease-in-out text-gray-400 cursor-not-allowed opacity-50 bg-gray-100 rounded-xl p-2"
-                                            title="No chart available for Idle Running"
-                                            disabled={true}
-                                          >
-                                            <svg
-                                              className="w-3 h-3 text-gray-400"
-                                              fill="none"
-                                              stroke="currentColor"
-                                              viewBox="0 0 24 24"
-                                            >
-                                              <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                                              />
-                                            </svg>
-                                          </button>
-                                        </div>
-                                      </div>
                                       <div className="space-y-2">
                                         {item?.backendData?.idle_running?.cause ? (
-                                          <div className="flex items-start gap-2">
-                                            <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                          <>
                                             <span className="text-base text-gray-600">
                                               {highlightNumbers(item.backendData.idle_running.cause)}
                                             </span>
-                                          </div>
+                                            {item.backendData.idle_running.idle && Object.keys(item.backendData.idle_running.idle)
+                                              .sort()
+                                              .map((key) => (
+                                                <div key={key} className="flex items-start gap-2 ml-4">
+                                                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 flex-shrink-0"></div>
+                                                  <span className="text-base text-gray-600">
+                                                    {highlightNumbers(item.backendData!.idle_running!.idle![key]!)}
+                                                  </span>
+                                                </div>
+                                              ))}
+                                          </>
                                         ) : (
                                           <p className="text-gray-500 text-base">
                                             No idle running data available.
