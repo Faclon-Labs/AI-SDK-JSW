@@ -4049,6 +4049,25 @@ const getHighPowerSubsections = (millType: string) => {
                                         <div className="bg-gray-50 rounded-lg p-4">
                                           <div className="flex items-center justify-between mb-3">
                                             <h4 className="font-semibold text-gray-900 text-base">Reduced Feed Operations</h4>
+                                            <div className="flex items-center gap-2">
+                                            <button
+                                              onClick={() => openPlusPopup(
+                                                "Reduced Feed Operations",
+                                                item?.sectionName || "",
+                                                "TPH.Reduced Feed Operations",
+                                                item?._id || "",
+                                                item?.insightID || "",
+                                                item?.applicationType || "Workbench",
+                                                item?.backendData || {}
+                                              )}
+                                              className="relative overflow-hidden transition-all duration-300 ease-in-out hover:bg-blue-100 text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-2 shadow-md hover:shadow-lg transform hover:-translate-y-1 hover:scale-105 group"
+                                              title="Add user note"
+                                            >
+                                              <Plus
+                                                className="w-3 h-3 transition-all duration-300 ease-in-out group-hover:scale-110 group-hover:rotate-90 relative z-10 text-blue-700 group-hover:text-blue-800"
+                                              />
+                                              <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                            </button>
                                             <button
                                               onClick={() => openPopup(item?.backendData?.TPH?.lowfeed, "Reduced Feed Operations", {...item?.backendData, sectionName: item?.sectionName})}
                                               className={`relative overflow-hidden transition-all duration-300 ease-in-out ${
@@ -4078,6 +4097,7 @@ const getHighPowerSubsections = (millType: string) => {
                                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                                               )}
                                             </button>
+                                            </div>
                                           </div>
                                           <div className="space-y-2">
                                             {Array.isArray(item.backendData.TPH["Reduced Feed Operations"]) ? 
