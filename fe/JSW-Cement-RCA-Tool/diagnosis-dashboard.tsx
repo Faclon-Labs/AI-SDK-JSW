@@ -3751,6 +3751,15 @@ const getHighPowerSubsections = (millType: string) => {
                                   </div>
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
+                                      {/* Check if any TPH data exists */}
+                                      {!item?.backendData?.TPH?.cause && !item?.backendData?.TPH?.one_rp_down && !item?.backendData?.TPH?.both_rp_down && !item?.backendData?.TPH?.["Reduced Feed Operations"] && !item?.backendData?.TPH?.ball_mill ? (
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                          <p className="text-gray-500 text-base">
+                                            No lower output TPH data available.
+                                          </p>
+                                        </div>
+                                      ) : (
+                                      <>
                                       {/* TPH Cause from backend */}
                                       {item?.backendData?.TPH?.cause && (
                                         <p className="text-gray-700 text-base">
@@ -4206,6 +4215,8 @@ const getHighPowerSubsections = (millType: string) => {
                                       {/* In the TPH main section, add the View Maintenance button */}
                                       {/* This button is now moved to the accordion header */}
 
+                                      </>
+                                      )}
                                     </div>
                                   </AccordionContent>
                                 </AccordionItem>
