@@ -41,19 +41,23 @@ interface HighchartsLineChartProps {
     color?: string;
   }>; // Add individual events with colors
   isDualAxis?: boolean; // Add prop for dual-axis plotting
+  usl?: number; // Upper Specification Limit (max)
+  lsl?: number; // Lower Specification Limit (min)
 }
 
-export default function HighchartsLineChart({ 
-  data, 
-  lines, 
-  title, 
-  eventRanges = [], 
-  targetValue, 
+export default function HighchartsLineChart({
+  data,
+  lines,
+  title,
+  eventRanges = [],
+  targetValue,
   isHighPowerSection = false,
   eventType = 'general',
   isCementMillTPH = false,
   events = [],
-  isDualAxis = false
+  isDualAxis = false,
+  usl,
+  lsl
 }: HighchartsLineChartProps) {
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
 
@@ -122,9 +126,20 @@ export default function HighchartsLineChart({
             type: 'line',
             name: line.name,
             color: line.color,
-            data: data.map(point => [point.timestamp, parseFloat(point[line.key] || '0')]),
+            data: data.map(point => {
+              const value = point[line.key];
+              // Return null for missing values instead of 0 to avoid incorrect data points
+              if (value === undefined || value === null || value === '') {
+                return [point.timestamp, null];
+              }
+              return [point.timestamp, parseFloat(value)];
+            }),
             visible: !hidden[line.name], // Use line.name instead of line.key for consistency
             lineWidth: 2,
+            fillOpacity: 0, // Ensure no area fill
+            fillColor: 'transparent', // Force transparent fill
+            threshold: null, // Prevent area fill below threshold
+            connectNulls: true, // Connect across null values to avoid gaps in dual-device data
             marker: {
               enabled: false
             },
@@ -135,14 +150,15 @@ export default function HighchartsLineChart({
             }
           };
           
-          // For dual-axis plotting (PHF and Kiln Main Drive sections), assign yAxis based on sensor type
+          // For dual-axis plotting (PHF, Kiln Main Drive, and Cooler Fan sections), assign yAxis based on sensor type
           if (isDualAxis) {
             // Kiln Feed (D63) goes on left axis (yAxis: 0)
-            // PH Fan sensors (D18, D19) and Kiln RPM (D16) go on right axis (yAxis: 1)
+            // PH Fan sensors (D18, D19), Kiln RPM (D16), and Secondary Air Temperature (D106) go on right axis (yAxis: 1)
             if (line.name.includes('Kiln Feed') || line.key.includes('D63')) {
               seriesConfig.yAxis = 0;
-            } else if (line.name.includes('PH Fan') || line.key.includes('D18') || line.key.includes('D19') || 
-                       line.name.includes('Kiln RPM') || line.key.includes('D16')) {
+            } else if (line.name.includes('PH Fan') || line.key.includes('D18') || line.key.includes('D19') ||
+                       line.name.includes('Kiln RPM') || line.key.includes('D16') ||
+                       line.name.includes('Secondary Air') || line.key.includes('D106')) {
               seriesConfig.yAxis = 1;
             }
           }
@@ -311,23 +327,33 @@ export default function HighchartsLineChart({
           // One RP Down - Create separate series for each individual event
           const rp1EventGroups: any[][] = [];
           const rp2EventGroups: any[][] = [];
-          
+
+          // For Cooler Fan, use Secondary Air Temperature (D106) for drop events
+          const isCoolerFan = title.toLowerCase().includes('cooler fan');
+
           // Group events by their individual boundaries
           eventsToProcess.forEach((event, eventIndex) => {
             const eventStart = new Date(event.startTime).getTime();
             const eventEnd = new Date(event.endTime).getTime();
-            
+
             // Get all points for this specific event
             const eventPoints = data.filter(point => {
               const pointTime = point.timestamp;
               return pointTime >= eventStart && pointTime <= eventEnd;
             }).map(point => {
               const pointTime = point.timestamp;
-              // Use the correct sensor key for the data point
-              const sensorKey = lines[0]?.key || 'D49';
+              // For Cooler Fan, use D106 (Secondary Air Temperature) for drop events
+              // For other sections, use the first line's sensor key
+              const sensorKey = isCoolerFan ? 'D106' : (lines[0]?.key || 'D49');
               const pointValue = parseFloat(point[sensorKey] || '0');
-              console.log(`Event point - sensorKey: ${sensorKey}, pointValue: ${pointValue}, point:`, point);
               return [pointTime, pointValue];
+            }).filter(point => {
+              // For Cooler Fan, filter out low/missing values (< 100) to avoid vertical drops
+              // This ensures the red line follows the actual SAT values, not missing data
+              if (isCoolerFan) {
+                return point[1] > 100; // Filter out values below 100°C (likely missing data)
+              }
+              return true;
             });
             
             if (eventPoints.length > 0) {
@@ -365,12 +391,15 @@ export default function HighchartsLineChart({
             }
           });
           
-          // Add RP2 Ramp Events series (each group as separate series with same name for legend)
+          // Add RP2 Ramp Events / Drop Events series (each group as separate series with same name for legend)
+          // Cooler Fan section now shows drop events as red line segments on top of SAT line
           rp2EventGroups.forEach((eventGroup, groupIndex) => {
             if (eventGroup.length > 0) {
-              series.push({
+              const seriesConfig: any = {
                 type: 'line',
-                name: isCementMillTPH ? 'RP2 Stoppages' : (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events'), // Same name for legend grouping
+                name: isCementMillTPH ? 'RP2 Stoppages' :
+                      (isCoolerFan ? 'Drop Events' :
+                       (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events')),
                 color: '#ED1C24',
                 data: eventGroup,
                 visible: !hidden.rp2_events,
@@ -384,8 +413,13 @@ export default function HighchartsLineChart({
                     lineWidth: 4
                   }
                 },
-                connectNulls: false
-              });
+                connectNulls: isCoolerFan ? true : false // Connect nulls for Cooler Fan to avoid gaps
+              };
+              // For Cooler Fan, plot drop events on right y-axis (same as Secondary Air Temperature)
+              if (isCoolerFan && isDualAxis) {
+                seriesConfig.yAxis = 1;
+              }
+              series.push(seriesConfig);
             }
           });
         }
@@ -417,10 +451,11 @@ export default function HighchartsLineChart({
       // For single line charts (TPH, etc.)
       const mainSensorKey = lines[0]?.key;
       const normalData = data.map(point => {
-        const timestamp = point.timestamp;
+        // Handle both 'timestamp' and 'time' fields
+        const timestamp = point.timestamp || (point.time ? new Date(point.time).getTime() : 0);
         const mainValue = parseFloat(point[mainSensorKey] || '0');
         let inEvent = false;
-        
+
         // Check if point is in any event
         for (const event of eventRanges) {
           const start = new Date(event.start).getTime();
@@ -430,7 +465,7 @@ export default function HighchartsLineChart({
             break;
           }
         }
-        
+
         return inEvent ? null : [timestamp, mainValue];
       }).filter(point => point !== null);
 
@@ -441,10 +476,11 @@ export default function HighchartsLineChart({
       }));
 
       const eventData = data.map(point => {
-        const timestamp = point.timestamp;
+        // Handle both 'timestamp' and 'time' fields
+        const timestamp = point.timestamp || (point.time ? new Date(point.time).getTime() : 0);
         const mainValue = parseFloat(point[mainSensorKey] || '0');
         let inEvent = false;
-        
+
         // Check if point is in any event
         for (const event of eventsToProcess) {
           const start = new Date(event.startTime).getTime();
@@ -454,28 +490,67 @@ export default function HighchartsLineChart({
             break;
           }
         }
-        
+
         return inEvent ? [timestamp, mainValue] : null;
       }).filter(point => point !== null);
 
-      const series: any[] = [
-        {
-          type: 'line',
-          name: lines[0]?.name || "Raw mill feed rate",
-          color: lines[0]?.color || '#3263fc',
-          data: normalData,
-          visible: !hidden[lines[0]?.name || "Raw mill feed rate"], // Use consistent naming
-          lineWidth: 2,
-          marker: {
-            enabled: false
-          },
-          states: {
-            hover: {
-              lineWidth: 3
-            }
-          }
+      // Define colors explicitly
+      const blueColor = '#2563eb';  // Bright blue for within bounds
+      const redColor = '#ef4444';   // Bright red for outside bounds
+
+      // Debug log
+      console.log('Chart zones - LSL:', lsl, 'USL:', usl);
+
+      // Build zones for coloring: Blue within LSL-USL, Red+Bold outside
+      // Zones are applied in order - each zone applies UP TO the 'value'
+      const getZones = () => {
+        if (lsl !== undefined && usl !== undefined) {
+          // Zone 1: from -Infinity to LSL = RED (below LSL)
+          // Zone 2: from LSL to USL = BLUE (within bounds)
+          // Zone 3: from USL to +Infinity = RED (above USL)
+          return [
+            { value: lsl, color: redColor, lineWidth: 3 },      // All values < LSL: Red, Bold
+            { value: usl, color: blueColor, lineWidth: 2 },     // LSL <= values < USL: Blue, Normal
+            { color: redColor, lineWidth: 3 }                    // All values >= USL: Red, Bold
+          ];
+        } else if (lsl !== undefined) {
+          return [
+            { value: lsl, color: redColor, lineWidth: 3 },      // All values < LSL: Red, Bold
+            { color: blueColor, lineWidth: 2 }                   // All values >= LSL: Blue, Normal
+          ];
+        } else if (usl !== undefined) {
+          return [
+            { value: usl, color: blueColor, lineWidth: 2 },     // All values < USL: Blue, Normal
+            { color: redColor, lineWidth: 3 }                    // All values >= USL: Red, Bold
+          ];
         }
-      ];
+        return null;
+      };
+
+      const zones = getZones();
+      console.log('Chart zones created:', zones);
+
+      // Line with color zones based on LSL/USL bounds
+      const seriesConfig: any = {
+        type: 'line',
+        name: lines[0]?.name || "Raw mill feed rate",
+        color: blueColor,
+        data: normalData,
+        visible: !hidden[lines[0]?.name || "Raw mill feed rate"],
+        lineWidth: 2,
+        marker: {
+          enabled: false
+        },
+        states: {
+          hover: {
+            lineWidth: 3
+          }
+        },
+        zoneAxis: 'y',
+        zones: zones || [{ color: blueColor }]
+      };
+
+      const series: any[] = [seriesConfig];
 
       // Add event series if there are events
       if (eventData.length > 0) {
@@ -619,23 +694,33 @@ export default function HighchartsLineChart({
           // One RP Down - Create separate series for each individual event
           const rp1EventGroups: any[][] = [];
           const rp2EventGroups: any[][] = [];
-          
+
+          // For Cooler Fan, use Secondary Air Temperature (D106) for drop events
+          const isCoolerFan = title.toLowerCase().includes('cooler fan');
+
           // Group events by their individual boundaries
           eventsToProcess.forEach((event, eventIndex) => {
             const eventStart = new Date(event.startTime).getTime();
             const eventEnd = new Date(event.endTime).getTime();
-            
+
             // Get all points for this specific event
             const eventPoints = data.filter(point => {
               const pointTime = point.timestamp;
               return pointTime >= eventStart && pointTime <= eventEnd;
             }).map(point => {
               const pointTime = point.timestamp;
-              // Use the correct sensor key for the data point
-              const sensorKey = lines[0]?.key || 'D49';
+              // For Cooler Fan, use D106 (Secondary Air Temperature) for drop events
+              // For other sections, use the first line's sensor key
+              const sensorKey = isCoolerFan ? 'D106' : (lines[0]?.key || 'D49');
               const pointValue = parseFloat(point[sensorKey] || '0');
-              console.log(`Event point - sensorKey: ${sensorKey}, pointValue: ${pointValue}, point:`, point);
               return [pointTime, pointValue];
+            }).filter(point => {
+              // For Cooler Fan, filter out low/missing values (< 100) to avoid vertical drops
+              // This ensures the red line follows the actual SAT values, not missing data
+              if (isCoolerFan) {
+                return point[1] > 100; // Filter out values below 100°C (likely missing data)
+              }
+              return true;
             });
             
             if (eventPoints.length > 0) {
@@ -673,12 +758,15 @@ export default function HighchartsLineChart({
             }
           });
           
-          // Add RP2 Ramp Events series (each group as separate series with same name for legend)
+          // Add RP2 Ramp Events / Drop Events series (each group as separate series with same name for legend)
+          // Cooler Fan section now shows drop events as red line segments on top of SAT line
           rp2EventGroups.forEach((eventGroup, groupIndex) => {
             if (eventGroup.length > 0) {
-              series.push({
+              const seriesConfig: any = {
                 type: 'line',
-                name: isCementMillTPH ? 'RP2 Stoppages' : (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events'), // Same name for legend grouping
+                name: isCementMillTPH ? 'RP2 Stoppages' :
+                      (isCoolerFan ? 'Drop Events' :
+                       (title.toLowerCase().includes('klin feed') || title.toLowerCase().includes('tph events') ? 'Drop Events' : 'RP2 Ramp Events')),
                 color: '#ED1C24',
                 data: eventGroup,
                 visible: !hidden.rp2_events,
@@ -692,8 +780,13 @@ export default function HighchartsLineChart({
                     lineWidth: 4
                   }
                 },
-                connectNulls: false
-              });
+                connectNulls: isCoolerFan ? true : false // Connect nulls for Cooler Fan to avoid gaps
+              };
+              // For Cooler Fan, plot drop events on right y-axis (same as Secondary Air Temperature)
+              if (isCoolerFan && isDualAxis) {
+                seriesConfig.yAxis = 1;
+              }
+              series.push(seriesConfig);
             }
           });
         }
@@ -814,11 +907,13 @@ export default function HighchartsLineChart({
         }
       },
       gridLineWidth: 1,
-      gridLineColor: '#e5e7eb'
+      gridLineColor: '#e5e7eb',
+      // No plotBands - drop events are shown as red line segments instead
+      plotBands: []
     },
     yAxis: isDualAxis ? [
       {
-        // Left axis for Kiln Feed
+        // Left axis - Kiln Feed (TPH)
         title: {
           text: 'Kiln Feed (TPH)',
           style: {
@@ -839,9 +934,10 @@ export default function HighchartsLineChart({
         softMax: undefined
       },
       {
-        // Right axis for PH Fan Power or Kiln RPM
+        // Right axis - PH Fan Power, Kiln RPM, or Secondary Air Temperature
         title: {
-          text: title.toLowerCase().includes('kiln main drive') ? 'Kiln RPM' : 'PH Fan Power (kW)',
+          text: title.toLowerCase().includes('kiln main drive') ? 'Kiln RPM' :
+                title.toLowerCase().includes('cooler fan') ? 'Secondary Air Temp (°C)' : 'PH Fan Power (kW)',
           style: {
             color: '#ff8d13'
           }
@@ -869,13 +965,47 @@ export default function HighchartsLineChart({
       },
       gridLineColor: '#e5e7eb',
       gridLineDashStyle: 'Dash',
-      // Auto-scale Y-axis to fit data (not starting from 0)
       startOnTick: false,
       endOnTick: false,
-      softMin: undefined,
-      softMax: undefined,
-      min: null,
-      max: null
+      // Let Highcharts auto-scale to fit both data and USL/LSL lines
+      // softMin/softMax ensure USL/LSL are visible but won't crop data
+      softMin: lsl !== undefined ? lsl - (Math.abs(lsl) * 0.05) : undefined,
+      softMax: usl !== undefined ? usl + (Math.abs(usl) * 0.05) : undefined,
+      // Add USL (Upper Specification Limit) and LSL (Lower Specification Limit) lines
+      plotLines: [
+        ...(usl !== undefined ? [{
+          value: usl,
+          color: '#65ae00', // Dark green color for USL
+          dashStyle: 'Dash' as const,
+          width: 2,
+          label: {
+            text: `USL: ${usl.toFixed(2)}`,
+            align: 'right' as const,
+            style: {
+              color: '#65ae00',
+              fontWeight: 'bold',
+              fontSize: '11px'
+            }
+          },
+          zIndex: 5
+        }] : []),
+        ...(lsl !== undefined ? [{
+          value: lsl,
+          color: '#65ae00', // Dark green color for LSL (same as USL)
+          dashStyle: 'Dash' as const,
+          width: 2,
+          label: {
+            text: `LSL: ${lsl.toFixed(2)}`,
+            align: 'right' as const,
+            style: {
+              color: '#65ae00',
+              fontWeight: 'bold',
+              fontSize: '11px'
+            }
+          },
+          zIndex: 5
+        }] : [])
+      ]
     },
     tooltip: {
       shared: true,
@@ -884,9 +1014,9 @@ export default function HighchartsLineChart({
         let tooltip = `<b>${timestamp}</b><br/>`;
         if (this.points) {
           this.points.forEach((point: any) => {
-            if (point.series.visible) {
+            if (point.series.visible && point.y !== null && point.y !== undefined) {
               // Replace the dot with a small square styled inline
-              const roundedY = point.y !== undefined ? Number(point.y).toFixed(2) : '';
+              const roundedY = Number(point.y).toFixed(2);
               let unit = '';
               
               // Add appropriate units for dual-axis charts
@@ -897,6 +1027,8 @@ export default function HighchartsLineChart({
                   unit = ' kW';
                 } else if (point.series.name.includes('Kiln RPM') || point.series.name.includes('D16')) {
                   unit = ' RPM';
+                } else if (point.series.name.includes('Secondary Air') || point.series.name.includes('D106')) {
+                  unit = ' °C';
                 }
               } else {
                 unit = ' Feed Rate';
@@ -935,6 +1067,8 @@ export default function HighchartsLineChart({
         enableMouseTracking: true,
         connectNulls: false,
         lineWidth: 2,
+        turboThreshold: 0, // Disable turbo mode to allow zones to work properly
+        fillOpacity: 0, // Ensure no area fill for line charts
         marker: {
           enabled: false,
           states: {
@@ -945,7 +1079,23 @@ export default function HighchartsLineChart({
           }
         }
       },
+      area: {
+        fillOpacity: 0, // Disable area fill if any series accidentally uses area type
+        lineWidth: 2,
+        fillColor: 'transparent'
+      },
+      spline: {
+        fillOpacity: 0,
+        fillColor: 'transparent'
+      },
+      areaspline: {
+        fillOpacity: 0,
+        fillColor: 'transparent'
+      },
       series: {
+        fillOpacity: 0,
+        fillColor: 'transparent',
+        threshold: null,
         states: {
           inactive: {
             opacity: 1 // Prevent dimming of non-active series
@@ -996,7 +1146,8 @@ export default function HighchartsLineChart({
     },
     boost: {
       useGPUTranslations: true,
-      seriesThreshold: 1
+      seriesThreshold: 5000,  // Disable boost for small datasets to allow zones to work
+      enabled: false  // Disable boost module entirely to support zones
     }
   };
 

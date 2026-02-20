@@ -1,2 +1,10 @@
 # Ignore demo-react-app folder
 /demo-react-app/
+
+# Ignore connector-userid-ts build artifacts
+connector-userid-ts/node_modules/
+connector-userid-ts/dist/
+
+# Ignore frontend build artifacts
+fe/JSW-Cement-RCA-Tool/node_modules/
+fe/JSW-Cement-RCA-Tool/.next/

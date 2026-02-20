@@ -11,7 +11,9 @@ const nextConfig = {
     unoptimized: true,
   },
   webpack: (config, { isServer }) => {
+    // Exclude connector-userid-ts and its dependencies from client-side bundle
     if (!isServer) {
+      // Prevent Node.js modules from being bundled on client side
       config.resolve.fallback = {
         ...config.resolve.fallback,
         mqtt: false,
@@ -36,13 +38,24 @@ const nextConfig = {
         zlib: false,
       };
 
-      // Completely exclude connector-userid-ts from client bundle
+      // Add externals for client-side to prevent bundling
       config.externals = config.externals || [];
-      config.externals.push({
-        '../../../../../connector-userid-ts/dist/index.js': 'commonjs ../../../../../connector-userid-ts/dist/index.js',
-        'connector-userid-ts': 'commonjs connector-userid-ts',
+      if (typeof config.externals === 'object' && !Array.isArray(config.externals)) {
+        config.externals = [config.externals];
+      }
+      config.externals.push(({ request }, callback) => {
+        // Exclude connector-userid-ts and all its dependencies from client bundle
+        if (request && (
+          request.includes('connector-userid-ts') ||
+          request === 'mqtt' ||
+          request === 'socks'
+        )) {
+          return callback(null, 'commonjs ' + request);
+        }
+        callback();
       });
     }
+
     return config;
   },
   serverExternalPackages: ['mqtt', 'connector-userid-ts', 'socks'],

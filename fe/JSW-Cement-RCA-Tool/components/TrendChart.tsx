@@ -20,6 +20,7 @@ interface TrendChartProps {
   targetValue?: number; // Add target value prop
   isCementMillTPH?: boolean; // Add prop to identify cement mill TPH sections
   isDualAxis?: boolean; // Add prop for dual-axis plotting
+  deviceMap?: Record<string, string>; // Map sensor ID to device ID for multi-device support
 }
 
 interface DataPoint {
@@ -35,52 +36,52 @@ interface EventRange {
   label: string;
 }
 
-export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events, legendNames, targetValue, isCementMillTPH = false, isDualAxis = false }: TrendChartProps) {
+export default function TrendChart({ deviceId, sensorList, startTime, endTime, title, events, legendNames, targetValue, isCementMillTPH = false, isDualAxis = false, deviceMap }: TrendChartProps) {
   const [data, setData] = useState<DataPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const colors = ['#3263fc', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
-  const eventColor = '#ED1C24'; // Single color for all events
-  const normalColor = '#3263fc'; // Color for normal data (raw mill feed rate)
 
   // Check if this is the TPH section (contains D49 and D5 sensors for Raw Mill)
   const isTPHSection = sensorList.includes('D49') && sensorList.includes('D5');
-  
+
   // Check if this is Kiln section (has legendNames with "Kiln feed rate")
   const isKlinSection = legendNames && legendNames.normal === "Kiln feed rate";
-  
+
   // Check if this is Cement Mill TPH section (contains D26 sensor or is a TPH section with legendNames, but not Klin)
   const isCementMillTPHSection = (sensorList.includes('D26') || (title.toLowerCase().includes('tph') && legendNames && Object.keys(legendNames).length > 0)) && !isKlinSection;
-  
+
   // Check if this is Quality section (contains quality-related sensors)
   const isQualitySection = title.toLowerCase().includes('quality');
-  
+
   // Check if this is a High Power section (has multiple sensors with names)
   // Also include Reduced Feed Operations sections to avoid duplicate legend entries
   const isReducedFeedOperations = title.toLowerCase().includes('reduced feed operations');
   const isHighPowerSection = (legendNames && Object.keys(legendNames).length > 0) || isReducedFeedOperations;
-  
+
   // Check if this is the SKS Fan section (contains D49, D5, and SKS Fan sensors)
-  const isSKSFanSection = sensorList.includes('D49') && sensorList.includes('D5') && 
+  const isSKSFanSection = sensorList.includes('D49') && sensorList.includes('D5') &&
     (sensorList.includes('D209') || sensorList.some(s => s.includes('D104')));
-  
+
   // Check if this is specifically the SKS Fan section from the title
   const isSKSFanFromTitle = title.toLowerCase().includes('sks fan');
-  
+
   // Check if this is the Raw Mill Feed Rate section (only D49 and D5)
   const isRawMillFeedRateSection = sensorList.length === 2 && sensorList.includes('D49') && sensorList.includes('D5');
-  
+
   // Check if this is PHF1 or PHF2 section (Preheater Fan sections with dual-axis plotting)
   const isPHF1Section = title.toLowerCase().includes('preheater fan 1') || title.toLowerCase().includes('phf1');
   const isPHF2Section = title.toLowerCase().includes('preheater fan 2') || title.toLowerCase().includes('phf2');
   const isPHFSection = isPHF1Section || isPHF2Section;
-  
+
   // Check if this is Kiln Main Drive section (Kiln Main Drive sections with dual-axis plotting)
   const isKlinMainDrive1Section = title.toLowerCase().includes('kiln main drive 1') || title.toLowerCase().includes('klin_main_drive_1');
   const isKlinMainDrive2Section = title.toLowerCase().includes('kiln main drive 2') || title.toLowerCase().includes('klin_main_drive_2');
   const isKlinMainDriveSection = isKlinMainDrive1Section || isKlinMainDrive2Section;
 
+  // Check if this is Cooler Fan section (with dual-axis plotting for Kiln Feed and Secondary Air Temperature)
+  const isCoolerFanSection = title.toLowerCase().includes('cooler fan');
 
   useEffect(() => {
     const fetchTrendData = async () => {
@@ -88,6 +89,91 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
       setError(null);
 
       try {
+        // Check if we need to fetch from multiple devices
+        if (deviceMap && Object.keys(deviceMap).length > 0) {
+          // Group sensors by device
+          const deviceSensors: Record<string, string[]> = {};
+          for (const sensor of sensorList) {
+            const device = deviceMap[sensor] || deviceId;
+            if (!deviceSensors[device]) {
+              deviceSensors[device] = [];
+            }
+            deviceSensors[device].push(sensor);
+          }
+
+          // Fetch data from each device in parallel
+          const devicePromises = Object.entries(deviceSensors).map(async ([device, sensors]) => {
+            const response = await fetch('/jsw-rca-new/api/trend', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                deviceId: device,
+                sensorList: sensors,
+                startTime,
+                endTime,
+              }),
+            });
+            if (!response.ok) throw new Error(`Failed to fetch from device ${device}`);
+            const result = await response.json();
+            return { device, sensors, data: result.success ? result.data : [] };
+          });
+
+          const deviceResults = await Promise.all(devicePromises);
+
+          // Collect all data points with their sensor values
+          const allDataPoints: Array<{ timestamp: number; time: string; sensor: string; value: string }> = [];
+
+          for (const { data: deviceData } of deviceResults) {
+            for (const point of deviceData) {
+              const timeStr = point.timestamp || point.time;
+              const timestamp = new Date(timeStr).getTime();
+
+              // Handle different data formats
+              if (point.sensor && point.value !== undefined) {
+                // Format 2: { time, value, sensor }
+                allDataPoints.push({ timestamp, time: timeStr, sensor: point.sensor, value: point.value });
+              } else {
+                // Format 1: { timestamp, D63: value } - direct sensor values
+                for (const key of Object.keys(point)) {
+                  if (key !== 'timestamp' && key !== 'time' && key !== 'sensor' && key !== 'value') {
+                    allDataPoints.push({ timestamp, time: timeStr, sensor: key, value: point[key] });
+                  }
+                }
+              }
+            }
+          }
+
+          // Sort all data points by timestamp
+          allDataPoints.sort((a, b) => a.timestamp - b.timestamp);
+
+          // Group by rounded timestamp (1 minute buckets) to align data from different devices
+          const bucketSize = 60000; // 1 minute in milliseconds
+          const bucketedData: Record<number, DataPoint> = {};
+
+          for (const point of allDataPoints) {
+            const bucket = Math.round(point.timestamp / bucketSize) * bucketSize;
+            if (!bucketedData[bucket]) {
+              bucketedData[bucket] = { time: new Date(bucket).toISOString() };
+            }
+            bucketedData[bucket][point.sensor] = point.value;
+          }
+
+          // Convert to array and sort by time
+          const mergedData = Object.values(bucketedData).sort((a, b) =>
+            new Date(a.time).getTime() - new Date(b.time).getTime()
+          );
+
+          console.log('TrendChart - Merged data sample:', mergedData.slice(0, 5));
+          console.log('TrendChart - Total merged data points:', mergedData.length);
+          // Log sample data points with both D63 (Kiln Feed) and D106 (SAT)
+          const sampleWithBoth = mergedData.filter(p => p.D63 && p.D106).slice(0, 5);
+          console.log('TrendChart - Data points with both D63 and D106:', sampleWithBoth);
+          console.log('TrendChart - D63 (Kiln Feed) values sample:', mergedData.slice(0, 10).map(p => ({ time: p.time, D63: p.D63 })));
+          console.log('TrendChart - D106 (SAT) values sample:', mergedData.slice(0, 10).map(p => ({ time: p.time, D106: p.D106 })));
+          setData(mergedData);
+          setLoading(false);
+          return;
+        }
 
         const response = await fetch('/jsw-rca-new/api/trend', {
           method: 'POST',
@@ -224,18 +310,18 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
           if (isKlinMainDriveSection) {
             processedData = result.data.map((point: DataPoint) => {
               const processedPoint: any = { ...point };
-              
+
               // Process each sensor in the sensor list
               sensorList.forEach((sensorId) => {
                 const sensorValue = parseFloat(point[sensorId] || '0');
                 const legendName = legendNames?.[sensorId] || sensorId;
                 processedPoint[legendName] = sensorValue;
               });
-              
+
               return processedPoint;
             });
           }
-          
+
           setData(processedData);
         } else {
           throw new Error(result.error || 'Failed to fetch trend data');
@@ -323,6 +409,9 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   } else if (isKlinMainDriveSection) {
     // For Kiln Main Drive sections, use the legend names or default sensor names
     displaySensors = legendNames ? Object.keys(legendNames) : sensorList;
+  } else if (isCoolerFanSection) {
+    // For Cooler Fan section, use the sensor IDs (D63, D106) as keys
+    displaySensors = sensorList;
   } else {
     displaySensors = sensorList;
   }
@@ -351,6 +440,11 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
       // For Kiln Main Drive sections, assign specific colors for different sensors
       if (sensor.includes('Kiln Feed') || sensor.includes('D63')) return '#3263fc'; // blue for Kiln Feed
       if (sensor.includes('Kiln RPM') || sensor.includes('D16')) return '#ff8d13'; // orange for Kiln RPM
+    }
+    if (isCoolerFanSection) {
+      // For Cooler Fan section, assign specific colors for different sensors
+      if (sensor.includes('Kiln Feed') || sensor.includes('D63')) return '#3263fc'; // blue for Kiln Feed
+      if (sensor.includes('Secondary Air') || sensor.includes('D106')) return '#ff8d13'; // orange for Secondary Air Temperature
     }
     return colors[index % colors.length];
   };
@@ -404,7 +498,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
         eventType={eventType}
         isCementMillTPH={isCementMillTPH}
         events={events}
-        isDualAxis={isPHFSection || isKlinMainDriveSection}
+        isDualAxis={isPHFSection || isKlinMainDriveSection || isCoolerFanSection || isDualAxis}
       />
     );
   }

@@ -4,7 +4,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Build outputs
-#dist/
+dist/
 build/
 *.tsbuildinfo
 
@@ -14,6 +14,8 @@ pids
 *.seed
 *.pid.lock
 
+# Dependencies
+node_modules/
 # Coverage directory used by tools like istanbul
 coverage/
 *.lcov

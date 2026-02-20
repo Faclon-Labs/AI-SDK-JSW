@@ -53,7 +53,9 @@
   "license": "MIT",
   "dependencies": {
     "axios": "^1.9.0",
-    "mqtt": "^5.14.1"
+    "mqtt": "^5.0.0",
+    "socks": "^2.7.1",
+    "worker-timers": "^8.0.28"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
