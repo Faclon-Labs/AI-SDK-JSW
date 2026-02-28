@@ -4036,10 +4036,34 @@ const getHighPowerSubsections = (millType: string) => {
                                                       </div>
                                                     )
                                                   }
-                                                  
+
                                                 </div>
                                               )
                                             }
+                                            {/* Show pending user inputs with sky blue highlight */}
+                                            {pendingUserInputs[item?._id]?.['TPH.both_rp_down']?.map((pendingInput) => (
+                                              <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                                <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                                <span className="text-base text-sky-700 font-medium flex-1">
+                                                  {pendingInput.text}
+                                                </span>
+                                                <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                                <button
+                                                  onClick={() => openEditPopup(item?._id, 'TPH.both_rp_down', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-sky-100 rounded"
+                                                  title="Edit"
+                                                >
+                                                  <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                                </button>
+                                                <button
+                                                  onClick={() => openDeleteConfirmation(item?._id, 'TPH.both_rp_down', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-red-50 rounded"
+                                                  title="Delete"
+                                                >
+                                                  <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                                </button>
+                                              </div>
+                                            ))}
                                           </div>
                                         </div>
                                       )}
@@ -4143,9 +4167,31 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )
                                             }
+                                            {/* Show pending user inputs with sky blue highlight */}
+                                            {pendingUserInputs[item?._id]?.['TPH.Reduced Feed Operations']?.map((pendingInput) => (
+                                              <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                                <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                                <span className="text-base text-sky-700 font-medium flex-1">
+                                                  {pendingInput.text}
+                                                </span>
+                                                <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                                <button
+                                                  onClick={() => openEditPopup(item?._id, 'TPH.Reduced Feed Operations', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-sky-100 rounded"
+                                                  title="Edit"
+                                                >
+                                                  <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                                </button>
+                                                <button
+                                                  onClick={() => openDeleteConfirmation(item?._id, 'TPH.Reduced Feed Operations', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-red-50 rounded"
+                                                  title="Delete"
+                                                >
+                                                  <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                                </button>
+                                              </div>
+                                            ))}
                                           </div>
-                                          
-                                          
                                         </div>
                                       )}
 
@@ -4249,12 +4295,13 @@ const getHighPowerSubsections = (millType: string) => {
                                     <div className="bg-gray-50 rounded-lg p-3">
                                       <div className="flex items-start justify-between gap-2">
                                       <div className="space-y-2 flex-1">
-                                        {item?.backendData?.idle_running?.cause ? (
-                                          <>
-                                            <span className="text-base text-gray-600">
-                                              {highlightNumbers(item.backendData.idle_running.cause)}
-                                            </span>
-                                            {item.backendData.idle_running.idle && Object.keys(item.backendData.idle_running.idle)
+                                        {item?.backendData?.idle_running?.cause && (
+                                          <span className="text-base text-gray-600">
+                                            {highlightNumbers(item.backendData.idle_running.cause)}
+                                          </span>
+                                        )}
+                                        {item?.backendData?.idle_running?.idle && Object.keys(item.backendData.idle_running.idle).length > 0
+                                          ? Object.keys(item.backendData.idle_running.idle)
                                               .sort()
                                               .map((key) => (
                                                 <div key={key} className="flex items-start gap-2 ml-4">
@@ -4263,19 +4310,43 @@ const getHighPowerSubsections = (millType: string) => {
                                                     {highlightNumbers(item.backendData!.idle_running!.idle![key]!)}
                                                   </span>
                                                 </div>
-                                              ))}
-                                          </>
-                                        ) : (
-                                          <p className="text-gray-500 text-base">
-                                            No idle running data available.
-                                          </p>
-                                        )}
+                                              ))
+                                          : !item?.backendData?.idle_running?.cause && (
+                                              <p className="text-gray-500 text-base">
+                                                No idle running data available.
+                                              </p>
+                                            )
+                                        }
+                                        {/* Show pending user inputs with sky blue highlight */}
+                                        {pendingUserInputs[item?._id]?.['idle_running.idle']?.map((pendingInput) => (
+                                          <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                            <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                            <span className="text-base text-sky-700 font-medium flex-1">
+                                              {pendingInput.text}
+                                            </span>
+                                            <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                            <button
+                                              onClick={() => openEditPopup(item?._id, 'idle_running.idle', pendingInput.id, pendingInput.text)}
+                                              className="p-0.5 hover:bg-sky-100 rounded"
+                                              title="Edit"
+                                            >
+                                              <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                            </button>
+                                            <button
+                                              onClick={() => openDeleteConfirmation(item?._id, 'idle_running.idle', pendingInput.id, pendingInput.text)}
+                                              className="p-0.5 hover:bg-red-50 rounded"
+                                              title="Delete"
+                                            >
+                                              <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                            </button>
+                                          </div>
+                                        ))}
                                       </div>
                                       <button
                                         onClick={() => openPlusPopup(
                                           "Idle Running",
                                           item?.sectionName || "",
-                                          "idle_running",
+                                          "idle_running.idle",
                                           item?._id || "",
                                           item?.insightID || "",
                                           item?.applicationType || "Workbench",
