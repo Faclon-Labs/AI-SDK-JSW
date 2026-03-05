@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "export": "next build",
+    "build": "next build",
+    "export": "NEXT_EXPORT=true next build",
     "dev": "next dev",
     "lint": "next lint",
     "start": "node proxy-server.js"
