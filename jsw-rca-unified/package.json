@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "build": "next build",
+    "export": "next build",
     "dev": "next dev",
     "lint": "next lint",
-    "start": "next start"
+    "start": "node proxy-server.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -62,7 +63,8 @@
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.6",
     "exceljs": "^4.4.0",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "express": "^4.21.2"
   },
   "devDependencies": {
     "@types/node": "^22",
