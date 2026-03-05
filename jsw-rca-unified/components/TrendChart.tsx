@@ -85,7 +85,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
   const isCoolerFanSection = title.toLowerCase().includes('cooler fan');
 
   useEffect(() => {
-    const fetchTrendData = async () => {
+    const loadTrendData = async () => {
       setLoading(true);
       setError(null);
 
@@ -308,7 +308,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
     };
 
     if (deviceId && sensorList.length > 0 && startTime && endTime) {
-      fetchTrendData();
+      loadTrendData();
     }
   }, [deviceId, sensorList, startTime, endTime, isTPHSection, isCementMillTPH, isCementMillTPHSection, isQualitySection, isSKSFanSection, isSKSFanFromTitle, isRawMillFeedRateSection, isPHFSection, isKlinMainDriveSection]);
 

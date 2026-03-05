@@ -11,7 +11,7 @@ import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Sear
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useDiagnosticData, ProcessParam } from "./hooks/useDiagnosticData"
-import { fetchStoppages, updateInsightResult } from "./lib/api"
+import { fetchStoppages, updateInsightResult, fetchTrendData } from "./lib/api"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import TrendChart from "./components/TrendChart"
 import HighchartsLineChart from "./components/HighchartsLineChart"
@@ -1488,18 +1488,7 @@ const getHighPowerSubsections = (millType: string) => {
             const sensorsForDevice = deviceGroups[deviceId];
             console.log(`Fetching sensors ${sensorsForDevice.join(', ')} from device ${deviceId}`);
 
-            const response = await fetch('/api/trend', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                deviceId,
-                sensorList: sensorsForDevice,
-                startTime,
-                endTime
-              })
-            });
-
-            const result = await response.json();
+            const result = await fetchTrendData(deviceId, sensorsForDevice, startTime, endTime);
             return { deviceId, sensors: sensorsForDevice, data: result.success ? result.data : [] };
           });
 
@@ -1598,18 +1587,7 @@ const getHighPowerSubsections = (millType: string) => {
       }
 
       // Single device fetch (original logic for simple sensors or formulas from same device)
-      const response = await fetch('/api/trend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId: deviceId,
-          sensorList: sensors,
-          startTime,
-          endTime
-        })
-      });
-
-      const result = await response.json();
+      const result = await fetchTrendData(deviceId, sensors, startTime, endTime);
 
       if (result.success && result.data) {
         let processedData = result.data;

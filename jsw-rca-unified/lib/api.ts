@@ -51,7 +51,7 @@ async function fetchInsightResultsFromBackend(startDate?: string, endDate?: stri
   return retryWithBackoff(async () => {
     const response = await fetch(url, {
       method: 'PUT',
-      headers: { userID: userId, Authorization: token, 'Content-Type': 'application/json' },
+      headers: { Authorization: token, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
@@ -79,14 +79,14 @@ export async function updateInsightResult({ _id, insightID, applicationType, res
   _id: string; insightID: string; applicationType?: string; result: any;
 }) {
   const { userId, token } = getAuth();
-  const url = `${AI_SDK_URL}/api/bruce/insightResult/update/singleInsightResult`;
+  const url = `${AI_SDK_URL}/bruce/insightResult/update/singleInsightResult`;
   const payload = {
     mode: 'set',
     updatedFields: { _id, insightID, applicationType: applicationType || 'Workbench', result },
   };
   const response = await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: token, userID: userId },
+    headers: { 'Content-Type': 'application/json', Authorization: token, 'X-Urid': userId },
     body: JSON.stringify(payload),
   });
   const responseText = await response.text();
@@ -140,8 +140,8 @@ export async function fetchTrendData(
       cursor: 'true',
       limit: String(CURSOR_LIMIT),
     });
-    const res = await fetch(`${AI_SDK_URL}/api/apiLayer/getAllData?${params}`, {
-      headers: { userID: userId, Authorization: token },
+    const res = await fetch(`${AI_SDK_URL}/apiLayer/getAllData?${params}`, {
+      headers: { Authorization: token, 'X-Urid': userId },
     });
     if (!res.ok) throw new Error(`Upstream API error: ${res.status}`);
     const result = await res.json();
@@ -212,10 +212,10 @@ export async function fetchStoppages({
   const moduleIdentifier = moduleIds || moduleId;
   const eventIdentifier = eventsParam || eventId;
   const response = await fetch(
-    `${AI_SDK_URL}/api/eventTag/maintenanceModuleFilters/${skip}/${limit}`,
+    `${AI_SDK_URL}/eventTag/maintenanceModuleFilters/${skip}/${limit}`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: token, userID: userId },
+      headers: { 'Content-Type': 'application/json', Authorization: token, 'X-Urid': userId },
       body: JSON.stringify({
         userId,
         moduleId: moduleIdentifier,
