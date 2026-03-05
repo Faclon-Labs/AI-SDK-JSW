@@ -11,6 +11,7 @@ import { CalendarDays, ChevronDown, ChevronRight, Download, Filter, LogOut, Sear
 import { useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useDiagnosticData, ProcessParam } from "./hooks/useDiagnosticData"
+import { fetchStoppages, updateInsightResult } from "./lib/api"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import TrendChart from "./components/TrendChart"
 import HighchartsLineChart from "./components/HighchartsLineChart"
@@ -515,22 +516,7 @@ export default function Component() {
     endTime: string;
     limit?: number;
   }) => {
-    const response = await fetch('/jsw-rca-unified/api/stoppages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        moduleId,
-        eventId,
-        startTime,
-        endTime,
-        limit,
-      }),
-    });
-
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.success) {
-      throw new Error(payload?.error || 'Failed to fetch stoppages data');
-    }
+    const payload = await fetchStoppages({ moduleId, eventId, startTime, endTime, limit });
     return payload.data || [];
   };
 
@@ -1502,7 +1488,7 @@ const getHighPowerSubsections = (millType: string) => {
             const sensorsForDevice = deviceGroups[deviceId];
             console.log(`Fetching sensors ${sensorsForDevice.join(', ')} from device ${deviceId}`);
 
-            const response = await fetch('/jsw-rca-unified/api/trend', {
+            const response = await fetch('/api/trend', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1612,7 +1598,7 @@ const getHighPowerSubsections = (millType: string) => {
       }
 
       // Single device fetch (original logic for simple sensors or formulas from same device)
-      const response = await fetch('/jsw-rca-unified/api/trend', {
+      const response = await fetch('/api/trend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1907,15 +1893,7 @@ const getHighPowerSubsections = (millType: string) => {
 
       console.log('Saving ALL pending inputs to DB with MERGED payload:', payload);
 
-      const response = await fetch('/jsw-rca-unified/api/insights/update', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
+      const data = await updateInsightResult(payload);
 
       if (data.success) {
         console.log('Successfully saved all pending inputs to DB:', data);

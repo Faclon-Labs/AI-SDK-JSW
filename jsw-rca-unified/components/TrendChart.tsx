@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import HighchartsLineChart from './HighchartsLineChart';
 import { Component as LumaSpin } from './ui/luma-spin';
+import { fetchTrendData } from '../lib/api';
 
 interface TrendChartProps {
   deviceId: string;
@@ -103,19 +104,8 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
 
           // Fetch data from each device in parallel
           const devicePromises = Object.entries(deviceSensors).map(async ([device, sensors]) => {
-            const response = await fetch('/jsw-rca-unified/api/trend', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                deviceId: device,
-                sensorList: sensors,
-                startTime,
-                endTime,
-              }),
-            });
-            if (!response.ok) throw new Error(`Failed to fetch from device ${device}`);
-            const result = await response.json();
-            return { device, sensors, data: result.success ? result.data : [] };
+            const result = await fetchTrendData(device, sensors, startTime, endTime);
+            return { device, sensors, data: result.data };
           });
 
           const deviceResults = await Promise.all(devicePromises);
@@ -175,24 +165,7 @@ export default function TrendChart({ deviceId, sensorList, startTime, endTime, t
           return;
         }
 
-        const response = await fetch('/jsw-rca-unified/api/trend', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            deviceId,
-            sensorList,
-            startTime,
-            endTime,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch trend data');
-        }
-
-        const result = await response.json();
+        const result = await fetchTrendData(deviceId, sensorList, startTime, endTime);
         
         if (result.success) {
           let processedData = result.data;

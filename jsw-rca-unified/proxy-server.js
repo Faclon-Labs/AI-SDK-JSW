@@ -123,8 +123,8 @@ const mapEventsToRows = (events) => events.map((event) => {
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 
-// POST /jsw-rca-unified/api/insights
-app.post('/jsw-rca-unified/api/insights', async (req, res) => {
+// POST /api/insights
+app.post('/api/insights', async (req, res) => {
   try {
     const { startDate, endDate, fetchAll } = req.body;
     const organisationId = await getUserOrganization();
@@ -155,8 +155,8 @@ app.post('/jsw-rca-unified/api/insights', async (req, res) => {
   }
 });
 
-// PUT /jsw-rca-unified/api/insights/update
-app.put('/jsw-rca-unified/api/insights/update', async (req, res) => {
+// PUT /api/insights/update
+app.put('/api/insights/update', async (req, res) => {
   try {
     const { _id, insightID, applicationType, result } = req.body;
     if (!_id || !insightID || !result) {
@@ -185,8 +185,8 @@ app.put('/jsw-rca-unified/api/insights/update', async (req, res) => {
   }
 });
 
-// POST /jsw-rca-unified/api/trend
-app.post('/jsw-rca-unified/api/trend', async (req, res) => {
+// POST /api/trend
+app.post('/api/trend', async (req, res) => {
   try {
     const { deviceId, sensorList, startTime, endTime } = req.body;
     if (!deviceId || !sensorList || !startTime || !endTime) {
@@ -204,8 +204,8 @@ app.post('/jsw-rca-unified/api/trend', async (req, res) => {
   }
 });
 
-// POST /jsw-rca-unified/api/stoppages
-app.post('/jsw-rca-unified/api/stoppages', async (req, res) => {
+// POST /api/stoppages
+app.post('/api/stoppages', async (req, res) => {
   try {
     const { startTime, endTime, moduleId, moduleIds, eventId, events, skip = 0, limit = 200, sortOrder = 1 } = req.body || {};
     if (!startTime || !endTime) {
@@ -243,11 +243,11 @@ app.post('/jsw-rca-unified/api/stoppages', async (req, res) => {
 
 // ─── Serve static Next.js export ─────────────────────────────────────────────
 
-app.use('/jsw-rca-unified', express.static(path.join(__dirname, 'out', 'jsw-rca-unified')));
+app.use('/', express.static(path.join(__dirname, 'out')));
 
-// SPA fallback — serve index.html for any unmatched route under basePath
-app.get('/jsw-rca-unified/*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'out', 'jsw-rca-unified', 'index.html'));
+// SPA fallback — serve index.html for any unmatched route
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'out', 'index.html'));
 });
 
 app.listen(PORT, () => {
