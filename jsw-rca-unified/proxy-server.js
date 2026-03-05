@@ -4,12 +4,21 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ─── Backend config (never sent to client) ───────────────────────────────────
-const USER_ID = '66792886ef26fb850db806c5';
-const DATA_URL_EXT = 'https://datads-ext.iosense.io';
-const DATA_URL_INT = 'https://datads.iosense.io';
+// ─── Backend config ───────────────────────────────────────────────────────────
+const CONNECTOR_URL = 'https://connector.iosense.io';
+const AI_SDK_URL = `${CONNECTOR_URL}/api/account/ai-sdk`;
 const INSIGHT_ID = 'INS_a7bca70a5160';
 const CURSOR_LIMIT = 1000;
+
+// Extract SSO auth from request headers (set by frontend after SSO login)
+function getAuthFromRequest(req) {
+  const userId = req.headers['x-user-id'];
+  const token = req.headers['authorization'];
+  if (!userId || !token) {
+    throw Object.assign(new Error('Missing authentication headers: x-user-id and Authorization required'), { status: 401 });
+  }
+  return { userId, token };
+}
 
 app.use(express.json());
 
@@ -26,24 +35,21 @@ async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 1000) {
   }
 }
 
-let cachedOrgId = null;
-async function getUserOrganization() {
-  if (cachedOrgId) return cachedOrgId;
-  const res = await fetch(`${DATA_URL_EXT}/api/metaData/user`, {
-    headers: { userID: USER_ID },
+async function getUserOrganization(userId, token) {
+  const res = await fetch(`${AI_SDK_URL}/api/metaData/user`, {
+    headers: { userID: userId, Authorization: token },
   });
   if (!res.ok) throw new Error(`Failed to get user info: ${res.status}`);
   const data = await res.json();
   if (!data.data?.organisation?._id) throw new Error('Organization ID not found');
-  cachedOrgId = data.data.organisation._id;
-  return cachedOrgId;
+  return data.data.organisation._id;
 }
 
 function convertISTStringToUnix(timeStr) {
   return new Date(timeStr.replace(' ', 'T') + '+05:30').getTime();
 }
 
-async function fetchInfluxData(deviceId, sensorList, startTime, endTime) {
+async function fetchInfluxData(deviceId, sensorList, startTime, endTime, userId, token) {
   const sensorValues = sensorList.join(',');
   let cursor = { start: startTime, end: endTime };
   const allData = [];
@@ -56,8 +62,8 @@ async function fetchInfluxData(deviceId, sensorList, startTime, endTime) {
       cursor: 'true',
       limit: String(CURSOR_LIMIT),
     });
-    const res = await fetch(`${DATA_URL_EXT}/api/apiLayer/getAllData?${params}`, {
-      headers: { userID: USER_ID },
+    const res = await fetch(`${AI_SDK_URL}/api/apiLayer/getAllData?${params}`, {
+      headers: { userID: userId, Authorization: token },
     });
     if (!res.ok) throw new Error(`Upstream API error: ${res.status}`);
     const result = await res.json();
@@ -126,21 +132,22 @@ const mapEventsToRows = (events) => events.map((event) => {
 // POST /api/insights
 app.post('/api/insights', async (req, res) => {
   try {
+    const { userId, token } = getAuthFromRequest(req);
     const { startDate, endDate, fetchAll } = req.body;
-    const organisationId = await getUserOrganization();
-    const url = `${DATA_URL_EXT}/api/bruce/insightResult/fetch/paginated/${INSIGHT_ID}`;
+    const organisationId = await getUserOrganization(userId, token);
+    const url = `${CONNECTOR_URL}/api/account/bruce/insightResult/fetch/paginated/${INSIGHT_ID}`;
     const filter = fetchAll
       ? { startDate: undefined, endDate: undefined, insightProperty: [], tags: undefined }
       : { startDate: startDate || undefined, endDate: endDate || undefined, insightProperty: [], tags: undefined };
     const payload = {
       filter,
-      user: { id: USER_ID, organisation: organisationId },
+      user: { id: userId, organisation: organisationId },
       pagination: { page: 1, count: 1000 },
     };
     const results = await retryWithBackoff(async () => {
       const response = await fetch(url, {
         method: 'PUT',
-        headers: { userID: USER_ID, 'Content-Type': 'application/json' },
+        headers: { userID: userId, Authorization: token, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
@@ -150,26 +157,28 @@ app.post('/api/insights', async (req, res) => {
     });
     res.json({ success: true, results });
   } catch (err) {
+    const status = err.status || 500;
     console.error('Failed to fetch insight results:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to fetch insight results' });
+    res.status(status).json({ success: false, error: err.message || 'Failed to fetch insight results' });
   }
 });
 
 // PUT /api/insights/update
 app.put('/api/insights/update', async (req, res) => {
   try {
+    const { userId, token } = getAuthFromRequest(req);
     const { _id, insightID, applicationType, result } = req.body;
     if (!_id || !insightID || !result) {
       return res.status(400).json({ success: false, error: 'Missing required fields: _id, insightID, or result' });
     }
-    const url = `${DATA_URL_INT}/api/bruce/insightResult/update/singleInsightResult`;
+    const url = `${AI_SDK_URL}/api/bruce/insightResult/update/singleInsightResult`;
     const payload = {
       mode: 'set',
       updatedFields: { _id, insightID, applicationType: applicationType || 'Workbench', result },
     };
     const response = await fetch(url, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer null', userID: USER_ID },
+      headers: { 'Content-Type': 'application/json', Authorization: token, userID: userId },
       body: JSON.stringify(payload),
     });
     const responseText = await response.text();
@@ -180,14 +189,16 @@ app.put('/api/insights/update', async (req, res) => {
     try { data = JSON.parse(responseText); } catch { data = { message: responseText }; }
     res.json({ success: true, data });
   } catch (err) {
+    const status = err.status || 500;
     console.error('Failed to update insight result:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to update insight result' });
+    res.status(status).json({ success: false, error: err.message || 'Failed to update insight result' });
   }
 });
 
 // POST /api/trend
 app.post('/api/trend', async (req, res) => {
   try {
+    const { userId, token } = getAuthFromRequest(req);
     const { deviceId, sensorList, startTime, endTime } = req.body;
     if (!deviceId || !sensorList || !startTime || !endTime) {
       return res.status(400).json({ error: 'Missing required parameters: deviceId, sensorList, startTime, endTime' });
@@ -195,18 +206,21 @@ app.post('/api/trend', async (req, res) => {
     const rawData = await fetchInfluxData(
       deviceId, sensorList,
       convertISTStringToUnix(startTime),
-      convertISTStringToUnix(endTime)
+      convertISTStringToUnix(endTime),
+      userId, token
     );
     res.json({ success: true, data: transformData(rawData) });
   } catch (err) {
+    const status = err.status || 500;
     console.error('Trend API error:', err);
-    res.status(500).json({ success: false, error: 'Failed to fetch trend data' });
+    res.status(status).json({ success: false, error: 'Failed to fetch trend data' });
   }
 });
 
 // POST /api/stoppages
 app.post('/api/stoppages', async (req, res) => {
   try {
+    const { userId, token } = getAuthFromRequest(req);
     const { startTime, endTime, moduleId, moduleIds, eventId, events, skip = 0, limit = 200, sortOrder = 1 } = req.body || {};
     if (!startTime || !endTime) {
       return res.status(400).json({ success: false, error: 'Missing startTime or endTime' });
@@ -217,12 +231,12 @@ app.post('/api/stoppages', async (req, res) => {
     if (!eventIdentifier) return res.status(400).json({ success: false, error: 'Missing eventId/events' });
 
     const upstream = await fetch(
-      `https://datads-ext.iosense.io/api/eventTag/maintenanceModuleFilters/${skip}/${limit}`,
+      `${AI_SDK_URL}/api/eventTag/maintenanceModuleFilters/${skip}/${limit}`,
       {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: token, userID: userId },
         body: JSON.stringify({
-          userId: USER_ID,
+          userId,
           moduleId: moduleIdentifier,
           startTime, endTime,
           events: Array.isArray(eventIdentifier) ? eventIdentifier : [eventIdentifier],
@@ -236,8 +250,9 @@ app.post('/api/stoppages', async (req, res) => {
     const data = await upstream.json();
     res.json({ success: true, data: mapEventsToRows(data?.data?.data || []) });
   } catch (err) {
+    const status = err.status || 500;
     console.error('Failed to fetch stoppages data:', err);
-    res.status(500).json({ success: false, error: 'Failed to fetch stoppages data' });
+    res.status(status).json({ success: false, error: 'Failed to fetch stoppages data' });
   }
 });
 

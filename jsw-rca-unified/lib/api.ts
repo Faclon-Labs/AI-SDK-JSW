@@ -1,10 +1,17 @@
 // Direct backend API calls — pure CSR, no server required
 
-const USER_ID = '66792886ef26fb850db806c5';
-const DATA_URL_EXT = 'https://datads-ext.iosense.io';
-const DATA_URL_INT = 'https://datads.iosense.io';
+import { getStoredAuth } from './auth';
+
+const CONNECTOR_URL = 'https://connector.iosense.io';
+const AI_SDK_URL = `${CONNECTOR_URL}/api/account/ai-sdk`;
 const INSIGHT_ID = 'INS_a7bca70a5160';
 const CURSOR_LIMIT = 1000;
+
+function getAuth() {
+  const auth = getStoredAuth();
+  if (!auth) throw new Error('Not authenticated. Please log in via IOsense portal.');
+  return auth;
+}
 
 export interface TimeRange {
   startDate: string;
@@ -29,32 +36,22 @@ async function retryWithBackoff<T>(
   throw new Error('All retry attempts failed');
 }
 
-let cachedOrgId: string | null = null;
-async function getUserOrganization(): Promise<string> {
-  if (cachedOrgId) return cachedOrgId;
-  const res = await fetch(`${DATA_URL_EXT}/api/metaData/user`, { headers: { userID: USER_ID } });
-  if (!res.ok) throw new Error(`Failed to get user info: ${res.status}`);
-  const data = await res.json();
-  if (!data.data?.organisation?._id) throw new Error('Organization ID not found');
-  cachedOrgId = data.data.organisation._id;
-  return cachedOrgId as string;
-}
 
 async function fetchInsightResultsFromBackend(startDate?: string, endDate?: string) {
-  const organisationId = await getUserOrganization();
-  const url = `${DATA_URL_EXT}/api/bruce/insightResult/fetch/paginated/${INSIGHT_ID}`;
+  const { userId, orgId, token } = getAuth();
+  const url = `${CONNECTOR_URL}/api/account/bruce/insightResult/fetch/paginated/${INSIGHT_ID}`;
   const filter = startDate
     ? { startDate, endDate, insightProperty: [], tags: undefined }
     : { startDate: undefined, endDate: undefined, insightProperty: [], tags: undefined };
   const payload = {
     filter,
-    user: { id: USER_ID, organisation: organisationId },
+    user: { id: userId, organisation: orgId },
     pagination: { page: 1, count: 1000 },
   };
   return retryWithBackoff(async () => {
     const response = await fetch(url, {
       method: 'PUT',
-      headers: { userID: USER_ID, 'Content-Type': 'application/json' },
+      headers: { userID: userId, Authorization: token, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
@@ -81,14 +78,15 @@ export async function fetchInsightResults({ startDate, endDate }: { startDate: s
 export async function updateInsightResult({ _id, insightID, applicationType, result }: {
   _id: string; insightID: string; applicationType?: string; result: any;
 }) {
-  const url = `${DATA_URL_INT}/api/bruce/insightResult/update/singleInsightResult`;
+  const { userId, token } = getAuth();
+  const url = `${AI_SDK_URL}/api/bruce/insightResult/update/singleInsightResult`;
   const payload = {
     mode: 'set',
     updatedFields: { _id, insightID, applicationType: applicationType || 'Workbench', result },
   };
   const response = await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer null', userID: USER_ID },
+    headers: { 'Content-Type': 'application/json', Authorization: token, userID: userId },
     body: JSON.stringify(payload),
   });
   const responseText = await response.text();
@@ -126,6 +124,7 @@ export async function fetchTrendData(
   startTime: string,
   endTime: string
 ): Promise<{ success: true; data: any[] }> {
+  const { userId, token } = getAuth();
   const sensorValues = sensorList.join(',');
   let cursor: { start: number; end: number } | null = {
     start: convertISTStringToUnix(startTime),
@@ -141,8 +140,8 @@ export async function fetchTrendData(
       cursor: 'true',
       limit: String(CURSOR_LIMIT),
     });
-    const res = await fetch(`${DATA_URL_EXT}/api/apiLayer/getAllData?${params}`, {
-      headers: { userID: USER_ID },
+    const res = await fetch(`${AI_SDK_URL}/api/apiLayer/getAllData?${params}`, {
+      headers: { userID: userId, Authorization: token },
     });
     if (!res.ok) throw new Error(`Upstream API error: ${res.status}`);
     const result = await res.json();
@@ -209,15 +208,16 @@ export async function fetchStoppages({
   limit?: number;
   sortOrder?: number;
 }): Promise<{ success: true; data: any[] }> {
+  const { userId, token } = getAuth();
   const moduleIdentifier = moduleIds || moduleId;
   const eventIdentifier = eventsParam || eventId;
   const response = await fetch(
-    `${DATA_URL_EXT}/api/eventTag/maintenanceModuleFilters/${skip}/${limit}`,
+    `${AI_SDK_URL}/api/eventTag/maintenanceModuleFilters/${skip}/${limit}`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: token, userID: userId },
       body: JSON.stringify({
-        userId: USER_ID,
+        userId,
         moduleId: moduleIdentifier,
         startTime,
         endTime,
