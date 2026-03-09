@@ -20,19 +20,13 @@ export function useAuth(): AuthState & { logout: () => void } {
 
   useEffect(() => {
     async function initAuth() {
-      // 1. Check localStorage for existing session
-      const stored = getStoredAuth();
-      if (stored) {
-        setAuthState({ status: 'authenticated', auth: stored });
-        return;
-      }
-
-      // 2. Check URL for SSO token (?token=xxx)
+      // 1. Check URL for SSO token (?token=xxx) — always re-validate and replace stored auth
       const ssoToken = getSSOTokenFromURL();
       if (ssoToken) {
         try {
+          clearAuth(); // Clear old session before validating new token
           const auth = await validateSSOToken(ssoToken);
-          storeAuth(auth);
+          storeAuth(auth); // Overwrite any existing session in localStorage
           // Remove token from URL to avoid re-use (SSO tokens are one-time use)
           const url = new URL(window.location.href);
           url.searchParams.delete('token');
@@ -44,6 +38,13 @@ export function useAuth(): AuthState & { logout: () => void } {
             error: err instanceof Error ? err.message : 'SSO validation failed',
           });
         }
+        return;
+      }
+
+      // 2. Fall back to localStorage for existing session (no URL token present)
+      const stored = getStoredAuth();
+      if (stored) {
+        setAuthState({ status: 'authenticated', auth: stored });
         return;
       }
 
