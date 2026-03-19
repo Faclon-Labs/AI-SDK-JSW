@@ -3497,7 +3497,7 @@ const getHighPowerSubsections = (millType: string) => {
               </TableHeader>
               <TableBody>
                 {finalFilteredData.map((item, index) => (
-                  <React.Fragment key={`${item.sectionName}-${item.timestamp}`}>
+                  <React.Fragment key={`${item.sectionName}-${item.timestamp}-${index}`}>
                     <TableRow
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={() => toggleRowExpansion(index)}
@@ -5913,9 +5913,9 @@ const getHighPowerSubsections = (millType: string) => {
                         const hasGraphData = hasGraphDataForParam(param);
                         // Debug log for graph data check
                         console.log(`Graph check for "${param.Parameter}": sensor_id=${param.sensor_id}, device_id=${param.device_id}, hasGraphData=${hasGraphData}`);
-                        const lowValue = param['<Low%'] ?? param['Low%'] ?? 0;
+                        const lowValue = param['<Low%'] ?? (param as any)['Low%'] ?? 0;
                         const targetValue = param['Target%'] ?? 0;
-                        const highValue = param['>High%'] ?? param['High%'] ?? 0;
+                        const highValue = param['>High%'] ?? (param as any)['High%'] ?? 0;
                         return (
                           <TableRow key={index} className={index % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
                             <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter || 'N/A'}</TableCell>
