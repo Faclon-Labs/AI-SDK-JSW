@@ -427,6 +427,9 @@ export default function Component() {
     endTime: "23:59",
   });
 
+  // Cache to track stoppages availability per item (keyed by `${_id}_${sectionName}`)
+  const [stoppagesCache, setStoppagesCache] = useState<Record<string, boolean>>({});
+
   // Add state for maintenance popup
   const [maintenancePopup, setMaintenancePopup] = useState<{
     isOpen: boolean,
@@ -3138,6 +3141,48 @@ const getHighPowerSubsections = (millType: string) => {
     });
   }, [filteredData, sortConfig]);
 
+  // Pre-fetch stoppages existence (limit=1) for all valid sections whenever data changes
+  useEffect(() => {
+    const checkAll = async () => {
+      const itemsToCheck = finalFilteredData.filter(item => {
+        const sectionKey = determineSectionKey(item.sectionName);
+        if (!sectionKey) return false;
+        const key = `${item._id}_${item.sectionName}`;
+        if (stoppagesCache[key] !== undefined) return false; // already resolved
+        const [start, end] = extractTimeRangeFromBackend(item.backendData);
+        return Boolean(start && end);
+      });
+      if (itemsToCheck.length === 0) return;
+
+      await Promise.all(itemsToCheck.map(async (item) => {
+        const key = `${item._id}_${item.sectionName}`;
+        const sectionKey = determineSectionKey(item.sectionName)!;
+        const sectionConfig = STOPPAGE_CONFIG[sectionKey];
+        const [rawStart, rawEnd] = extractTimeRangeFromBackend(item.backendData);
+        const start = normalizeTimeString(rawStart);
+        const end = normalizeTimeString(rawEnd);
+        const apiStart = start ? toISOStringIfPossible(start) : null;
+        const apiEnd = end ? toISOStringIfPossible(end) : null;
+        if (!apiStart || !apiEnd) {
+          setStoppagesCache(prev => ({ ...prev, [key]: false }));
+          return;
+        }
+        try {
+          const checks = await Promise.all(
+            ([sectionConfig.rp1, sectionConfig.rp2, sectionConfig.klin].filter(Boolean) as StoppageTabConfig[]).map(tab =>
+              fetchStoppagesForTab({ moduleId: tab.moduleId, eventId: tab.eventId, startTime: apiStart, endTime: apiEnd, limit: 1 })
+                .catch(() => [])
+            )
+          );
+          setStoppagesCache(prev => ({ ...prev, [key]: checks.some(d => d.length > 0) }));
+        } catch {
+          setStoppagesCache(prev => ({ ...prev, [key]: false }));
+        }
+      }));
+    };
+    void checkAll();
+  }, [finalFilteredData]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Create expanded data from sorted filtered data
   const expandedData = finalFilteredData.reduce((acc, item, index) => {
     acc[index] = {
@@ -3739,7 +3784,7 @@ const getHighPowerSubsections = (millType: string) => {
                                           e.stopPropagation();
                                             void openMaintenancePopup(item?.backendData, item?.sectionName);
                                         }}
-                                        disabled={!hasMaintenanceDataInPayload(item?.backendData)}
+                                        disabled={!stoppagesCache[`${item?._id}_${item?.sectionName}`]}
                                         title="View maintenance events"
                                       >
                                         <span className="inline-flex items-center gap-1">
