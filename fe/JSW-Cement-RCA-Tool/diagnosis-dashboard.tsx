@@ -427,6 +427,9 @@ export default function Component() {
     endTime: "23:59",
   });
 
+  // Cache to track stoppages availability per item (keyed by `${_id}_${sectionName}`)
+  const [stoppagesCache, setStoppagesCache] = useState<Record<string, boolean>>({});
+
   // Add state for maintenance popup
   const [maintenancePopup, setMaintenancePopup] = useState<{
     isOpen: boolean,
@@ -3138,6 +3141,48 @@ const getHighPowerSubsections = (millType: string) => {
     });
   }, [filteredData, sortConfig]);
 
+  // Pre-fetch stoppages existence (limit=1) for all valid sections whenever data changes
+  useEffect(() => {
+    const checkAll = async () => {
+      const itemsToCheck = finalFilteredData.filter(item => {
+        const sectionKey = determineSectionKey(item.sectionName);
+        if (!sectionKey) return false;
+        const key = `${item._id}_${item.sectionName}`;
+        if (stoppagesCache[key] !== undefined) return false; // already resolved
+        const [start, end] = extractTimeRangeFromBackend(item.backendData);
+        return Boolean(start && end);
+      });
+      if (itemsToCheck.length === 0) return;
+
+      await Promise.all(itemsToCheck.map(async (item) => {
+        const key = `${item._id}_${item.sectionName}`;
+        const sectionKey = determineSectionKey(item.sectionName)!;
+        const sectionConfig = STOPPAGE_CONFIG[sectionKey];
+        const [rawStart, rawEnd] = extractTimeRangeFromBackend(item.backendData);
+        const start = normalizeTimeString(rawStart);
+        const end = normalizeTimeString(rawEnd);
+        const apiStart = start ? toISOStringIfPossible(start) : null;
+        const apiEnd = end ? toISOStringIfPossible(end) : null;
+        if (!apiStart || !apiEnd) {
+          setStoppagesCache(prev => ({ ...prev, [key]: false }));
+          return;
+        }
+        try {
+          const checks = await Promise.all(
+            ([sectionConfig.rp1, sectionConfig.rp2, sectionConfig.klin].filter(Boolean) as StoppageTabConfig[]).map(tab =>
+              fetchStoppagesForTab({ moduleId: tab.moduleId, eventId: tab.eventId, startTime: apiStart, endTime: apiEnd, limit: 1 })
+                .catch(() => [])
+            )
+          );
+          setStoppagesCache(prev => ({ ...prev, [key]: checks.some(d => d.length > 0) }));
+        } catch {
+          setStoppagesCache(prev => ({ ...prev, [key]: false }));
+        }
+      }));
+    };
+    void checkAll();
+  }, [finalFilteredData]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Create expanded data from sorted filtered data
   const expandedData = finalFilteredData.reduce((acc, item, index) => {
     acc[index] = {
@@ -3497,7 +3542,7 @@ const getHighPowerSubsections = (millType: string) => {
               </TableHeader>
               <TableBody>
                 {finalFilteredData.map((item, index) => (
-                  <React.Fragment key={`${item.sectionName}-${item.timestamp}`}>
+                  <React.Fragment key={`${item.sectionName}-${item.timestamp}-${index}`}>
                     <TableRow
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={() => toggleRowExpansion(index)}
@@ -3739,7 +3784,7 @@ const getHighPowerSubsections = (millType: string) => {
                                           e.stopPropagation();
                                             void openMaintenancePopup(item?.backendData, item?.sectionName);
                                         }}
-                                        disabled={!hasMaintenanceDataInPayload(item?.backendData)}
+                                        disabled={!stoppagesCache[`${item?._id}_${item?.sectionName}`]}
                                         title="View maintenance events"
                                       >
                                         <span className="inline-flex items-center gap-1">
@@ -4036,10 +4081,34 @@ const getHighPowerSubsections = (millType: string) => {
                                                       </div>
                                                     )
                                                   }
-                                                  
+
                                                 </div>
                                               )
                                             }
+                                            {/* Show pending user inputs with sky blue highlight */}
+                                            {pendingUserInputs[item?._id]?.['TPH.both_rp_down']?.map((pendingInput) => (
+                                              <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                                <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                                <span className="text-base text-sky-700 font-medium flex-1">
+                                                  {pendingInput.text}
+                                                </span>
+                                                <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                                <button
+                                                  onClick={() => openEditPopup(item?._id, 'TPH.both_rp_down', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-sky-100 rounded"
+                                                  title="Edit"
+                                                >
+                                                  <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                                </button>
+                                                <button
+                                                  onClick={() => openDeleteConfirmation(item?._id, 'TPH.both_rp_down', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-red-50 rounded"
+                                                  title="Delete"
+                                                >
+                                                  <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                                </button>
+                                              </div>
+                                            ))}
                                           </div>
                                         </div>
                                       )}
@@ -4143,9 +4212,31 @@ const getHighPowerSubsections = (millType: string) => {
                                                 </div>
                                               )
                                             }
+                                            {/* Show pending user inputs with sky blue highlight */}
+                                            {pendingUserInputs[item?._id]?.['TPH.Reduced Feed Operations']?.map((pendingInput) => (
+                                              <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                                <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                                <span className="text-base text-sky-700 font-medium flex-1">
+                                                  {pendingInput.text}
+                                                </span>
+                                                <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                                <button
+                                                  onClick={() => openEditPopup(item?._id, 'TPH.Reduced Feed Operations', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-sky-100 rounded"
+                                                  title="Edit"
+                                                >
+                                                  <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                                </button>
+                                                <button
+                                                  onClick={() => openDeleteConfirmation(item?._id, 'TPH.Reduced Feed Operations', pendingInput.id, pendingInput.text)}
+                                                  className="p-0.5 hover:bg-red-50 rounded"
+                                                  title="Delete"
+                                                >
+                                                  <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                                </button>
+                                              </div>
+                                            ))}
                                           </div>
-                                          
-                                          
                                         </div>
                                       )}
 
@@ -4249,12 +4340,13 @@ const getHighPowerSubsections = (millType: string) => {
                                     <div className="bg-gray-50 rounded-lg p-3">
                                       <div className="flex items-start justify-between gap-2">
                                       <div className="space-y-2 flex-1">
-                                        {item?.backendData?.idle_running?.cause ? (
-                                          <>
-                                            <span className="text-base text-gray-600">
-                                              {highlightNumbers(item.backendData.idle_running.cause)}
-                                            </span>
-                                            {item.backendData.idle_running.idle && Object.keys(item.backendData.idle_running.idle)
+                                        {item?.backendData?.idle_running?.cause && (
+                                          <span className="text-base text-gray-600">
+                                            {highlightNumbers(item.backendData.idle_running.cause)}
+                                          </span>
+                                        )}
+                                        {item?.backendData?.idle_running?.idle && Object.keys(item.backendData.idle_running.idle).length > 0
+                                          ? Object.keys(item.backendData.idle_running.idle)
                                               .sort()
                                               .map((key) => (
                                                 <div key={key} className="flex items-start gap-2 ml-4">
@@ -4263,19 +4355,43 @@ const getHighPowerSubsections = (millType: string) => {
                                                     {highlightNumbers(item.backendData!.idle_running!.idle![key]!)}
                                                   </span>
                                                 </div>
-                                              ))}
-                                          </>
-                                        ) : (
-                                          <p className="text-gray-500 text-base">
-                                            No idle running data available.
-                                          </p>
-                                        )}
+                                              ))
+                                          : !item?.backendData?.idle_running?.cause && (
+                                              <p className="text-gray-500 text-base">
+                                                No idle running data available.
+                                              </p>
+                                            )
+                                        }
+                                        {/* Show pending user inputs with sky blue highlight */}
+                                        {pendingUserInputs[item?._id]?.['idle_running.idle']?.map((pendingInput) => (
+                                          <div key={pendingInput.id} className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 animate-pulse">
+                                            <div className="w-1.5 h-1.5 bg-sky-400 rounded-full flex-shrink-0"></div>
+                                            <span className="text-base text-sky-700 font-medium flex-1">
+                                              {pendingInput.text}
+                                            </span>
+                                            <span className="text-[10px] text-sky-500 animate-pulse">(pending save)</span>
+                                            <button
+                                              onClick={() => openEditPopup(item?._id, 'idle_running.idle', pendingInput.id, pendingInput.text)}
+                                              className="p-0.5 hover:bg-sky-100 rounded"
+                                              title="Edit"
+                                            >
+                                              <Pencil className="w-3 h-3 text-blue-500 hover:text-blue-700" />
+                                            </button>
+                                            <button
+                                              onClick={() => openDeleteConfirmation(item?._id, 'idle_running.idle', pendingInput.id, pendingInput.text)}
+                                              className="p-0.5 hover:bg-red-50 rounded"
+                                              title="Delete"
+                                            >
+                                              <X className="w-3 h-3 text-red-500 hover:text-red-700" />
+                                            </button>
+                                          </div>
+                                        ))}
                                       </div>
                                       <button
                                         onClick={() => openPlusPopup(
                                           "Idle Running",
                                           item?.sectionName || "",
-                                          "idle_running",
+                                          "idle_running.idle",
                                           item?._id || "",
                                           item?.insightID || "",
                                           item?.applicationType || "Workbench",
@@ -5842,9 +5958,9 @@ const getHighPowerSubsections = (millType: string) => {
                         const hasGraphData = hasGraphDataForParam(param);
                         // Debug log for graph data check
                         console.log(`Graph check for "${param.Parameter}": sensor_id=${param.sensor_id}, device_id=${param.device_id}, hasGraphData=${hasGraphData}`);
-                        const lowValue = param['<Low%'] ?? param['Low%'] ?? 0;
+                        const lowValue = param['<Low%'] ?? (param as any)['Low%'] ?? 0;
                         const targetValue = param['Target%'] ?? 0;
-                        const highValue = param['>High%'] ?? param['High%'] ?? 0;
+                        const highValue = param['>High%'] ?? (param as any)['High%'] ?? 0;
                         return (
                           <TableRow key={index} className={index % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
                             <TableCell className="px-4 py-2 border-b font-medium">{param.Parameter || 'N/A'}</TableCell>
